@@ -675,10 +675,11 @@ metadata:
   name: loki
   namespace: default
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
     - port: 3100
       targetPort: 3100
+      nodePort: 30100
   selector:
     app: loki
 ---
@@ -905,7 +906,7 @@ class HealthHandler(http.server.SimpleHTTPRequestHandler):
             # Perform real-time health checks on services
             prometheus_healthy = check_service('http://localhost:30090/-/healthy')
             grafana_healthy = check_service('http://localhost:30300/api/health')
-            loki_healthy = check_service('http://localhost:3100/ready')
+            loki_healthy = check_service('http://localhost:30100/ready')
 
             # Determine overall status
             all_ready = prometheus_healthy and grafana_healthy and loki_healthy
