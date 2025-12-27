@@ -849,7 +849,7 @@ log "Grafana:    http://$PRIMARY_IP:30300 (admin/$GRAFANA_PASSWORD)"
 log "Prometheus: http://$PRIMARY_IP:30090"
 log "PostgreSQL: postgres:5432 (fluicloud/$POSTGRES_PASSWORD)"
 log "Redis:      redis:6379 (password: $REDIS_PASSWORD)"
-log "Loki:       loki:3100"
+log "Loki:       http://$PRIMARY_IP:30100"
 log ""
 
 # Create marker file for K3s success
