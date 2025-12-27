@@ -18,6 +18,7 @@ REDIS_PASSWORD="${REDIS_PASSWORD}"
 GRAFANA_PASSWORD="${GRAFANA_PASSWORD}"
 
 LOG_FILE="/var/log/k3s-master-init.log"
+HEALTH_FILE="/var/log/observability-health.json"
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
@@ -32,11 +33,21 @@ error() {
     exit 1
 }
 
-# Legacy update_health function (no-op)
-# Health status is now checked dynamically by the Python health server
+# Update health status file (for CLI polling during cluster creation)
+# Note: The health server also provides dynamic checks via HTTP endpoint
 update_health() {
-    # No-op: health checks are now dynamic, not file-based
-    :
+    local status="$1"
+    local component="${2:-}"
+    local error_msg="${3:-}"
+
+    cat > "$HEALTH_FILE" <<EOF
+{
+  "status": "$status",
+  "component": "$component",
+  "error": "$error_msg",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
 }
 
 log "=== K3s Master Node Initialization ==="
