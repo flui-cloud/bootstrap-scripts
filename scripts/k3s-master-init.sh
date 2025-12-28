@@ -469,10 +469,11 @@ metadata:
   labels:
     app: postgres
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
     - port: 5432
       targetPort: 5432
+      nodePort: 30432
   selector:
     app: postgres
 ---
@@ -554,10 +555,11 @@ metadata:
   name: redis
   namespace: default
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
     - port: 6379
       targetPort: 6379
+      nodePort: 30379
   selector:
     app: redis
 ---
