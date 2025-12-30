@@ -844,9 +844,41 @@ spec:
               cpu: "500m"
 EOF_LOKI
 
+# Deploy Grafana Datasources ConfigMap
+log "→ Deploying Grafana Datasources ConfigMap..."
+cat > "$MANIFEST_DIR/07-grafana-datasources.yaml" <<'EOF_GRAFANA_DS'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: default
+  labels:
+    app: grafana
+data:
+  datasources.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: true
+        jsonData:
+          timeInterval: "15s"
+
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        editable: true
+        jsonData:
+          maxLines: 1000
+EOF_GRAFANA_DS
+
 # Deploy Grafana
 log "→ Deploying Grafana..."
-cat > "$MANIFEST_DIR/07-grafana.yaml" <<EOF_GRAFANA
+cat > "$MANIFEST_DIR/08-grafana.yaml" <<EOF_GRAFANA
 apiVersion: v1
 kind: Service
 metadata:
@@ -886,6 +918,9 @@ spec:
               value: "$GRAFANA_PASSWORD"
             - name: GF_INSTALL_PLUGINS
               value: ""
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
           resources:
             requests:
               memory: "256Mi"
@@ -893,6 +928,10 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
 EOF_GRAFANA
 
 log "✅ All manifests created in $MANIFEST_DIR"
