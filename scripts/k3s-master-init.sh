@@ -75,6 +75,32 @@ fi
 
 chmod +x /tmp/flui-init.sh
 
+# Download monitoring modules from GitHub
+log "Downloading monitoring modules..."
+mkdir -p /tmp/flui-modules
+
+MODULES_BASE_URL="${SCRIPTS_BASE_URL/scripts/modules}"
+log "Downloading from $MODULES_BASE_URL..."
+
+if ! curl -fsSL "$MODULES_BASE_URL/node-exporter.sh" -o /tmp/flui-modules/node-exporter.sh; then
+    warn "Failed to download node-exporter.sh - monitoring may be disabled"
+fi
+
+if ! curl -fsSL "$MODULES_BASE_URL/vector.sh" -o /tmp/flui-modules/vector.sh; then
+    warn "Failed to download vector.sh - monitoring may be disabled"
+fi
+
+if ! curl -fsSL "$MODULES_BASE_URL/monitoring.sh" -o /tmp/flui-modules/monitoring.sh; then
+    warn "Failed to download monitoring.sh - monitoring may be disabled"
+fi
+
+chmod +x /tmp/flui-modules/*.sh 2>/dev/null || true
+
+# Export monitoring endpoints for self-monitoring
+export LOKI_ENDPOINT="localhost:30100"
+export PROMETHEUS_ENDPOINT="localhost:30090"
+export SERVER_TYPE="k3s-master"
+
 # Export CA public key for SSH certificate authentication (if provided)
 if [[ -n "${FLUI_CA_PUBLIC_KEY:-}" ]]; then
     log "Exporting SSH CA public key for flui-init.sh..."
@@ -593,9 +619,84 @@ spec:
               cpu: "200m"
 EOF_REDIS
 
+# Deploy Prometheus ConfigMap
+log "→ Deploying Prometheus ConfigMap..."
+MASTER_IP=$(hostname -I | awk '{print $1}')
+cat > "$MANIFEST_DIR/04-prometheus-config.yaml" <<EOF_PROMETHEUS_CONFIG
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: default
+  labels:
+    app: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: 'flui-observability'
+        environment: 'production'
+
+    scrape_configs:
+      # Self-monitoring
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # Observability master node metrics
+      - job_name: 'observability-master'
+        static_configs:
+          - targets: ['${MASTER_IP}:9100']
+            labels:
+              node: 'master'
+              node_type: 'k3s-master'
+              cluster_type: 'observability'
+
+      # Kubernetes API server
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+
+      # Kubernetes pods with prometheus.io/scrape annotation
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: \$1:\$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+EOF_PROMETHEUS_CONFIG
+
 # Deploy Prometheus
 log "→ Deploying Prometheus..."
-cat > "$MANIFEST_DIR/04-prometheus.yaml" <<'EOF_PROMETHEUS'
+cat > "$MANIFEST_DIR/05-prometheus.yaml" <<'EOF_PROMETHEUS'
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -656,9 +757,19 @@ spec:
       serviceAccountName: prometheus
       containers:
         - name: prometheus
-          image: prom/prometheus:latest
+          image: prom/prometheus:v2.48.0
+          args:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--storage.tsdb.retention.time=15d'
+            - '--web.enable-lifecycle'
           ports:
             - containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: storage
+              mountPath: /prometheus
           resources:
             requests:
               memory: "512Mi"
@@ -666,11 +777,29 @@ spec:
             limits:
               memory: "1Gi"
               cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: storage
+          emptyDir: {}
 EOF_PROMETHEUS
 
 # Deploy Loki
 log "→ Deploying Loki..."
-cat > "$MANIFEST_DIR/05-loki.yaml" <<'EOF_LOKI'
+cat > "$MANIFEST_DIR/06-loki.yaml" <<'EOF_LOKI'
 apiVersion: v1
 kind: Service
 metadata:
@@ -716,7 +845,7 @@ EOF_LOKI
 
 # Deploy Grafana
 log "→ Deploying Grafana..."
-cat > "$MANIFEST_DIR/06-grafana.yaml" <<EOF_GRAFANA
+cat > "$MANIFEST_DIR/07-grafana.yaml" <<EOF_GRAFANA
 apiVersion: v1
 kind: Service
 metadata:
