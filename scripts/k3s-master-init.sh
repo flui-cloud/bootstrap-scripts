@@ -79,7 +79,8 @@ chmod +x /tmp/flui-init.sh
 log "Downloading monitoring modules..."
 mkdir -p /tmp/flui-modules
 
-MODULES_BASE_URL="${SCRIPTS_BASE_URL/scripts/modules}"
+# Construct modules URL by replacing the last 'scripts' with 'modules'
+MODULES_BASE_URL="${SCRIPTS_BASE_URL%/scripts}/modules"
 log "Downloading from $MODULES_BASE_URL..."
 
 if ! curl -fsSL "$MODULES_BASE_URL/node-exporter.sh" -o /tmp/flui-modules/node-exporter.sh; then
