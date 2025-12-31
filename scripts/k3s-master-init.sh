@@ -944,17 +944,19 @@ sleep 30
 # Wait for each component to be ready
 log ""
 log "Waiting for observability stack components to be ready..."
-log "Maximum wait time: 5 minutes per component"
+log "Maximum wait time: 10 minutes for databases, 5 minutes for other components"
 
-COMPONENT_TIMEOUT=300  # 5 minutes per component
+COMPONENT_TIMEOUT=300   # 5 minutes for most components
+POSTGRES_TIMEOUT=600    # 10 minutes for PostgreSQL (PVC binding + DB init)
+REDIS_TIMEOUT=600       # 10 minutes for Redis (PVC binding)
 
 # Wait for Postgres
 log "→ Waiting for PostgreSQL..."
 update_health "deploying" "postgres" ""
-if kubectl wait --for=condition=ready pod -l app=postgres --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+if kubectl wait --for=condition=ready pod -l app=postgres --timeout=${POSTGRES_TIMEOUT}s 2>/dev/null; then
     log "✅ PostgreSQL is ready"
 else
-    error_msg="PostgreSQL failed to become ready within ${COMPONENT_TIMEOUT}s"
+    error_msg="PostgreSQL failed to become ready within ${POSTGRES_TIMEOUT}s"
     log "❌ $error_msg"
     update_health "failed" "postgres" "$error_msg"
     error "$error_msg"
@@ -963,10 +965,10 @@ fi
 # Wait for Redis
 log "→ Waiting for Redis..."
 update_health "deploying" "redis" ""
-if kubectl wait --for=condition=ready pod -l app=redis --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+if kubectl wait --for=condition=ready pod -l app=redis --timeout=${REDIS_TIMEOUT}s 2>/dev/null; then
     log "✅ Redis is ready"
 else
-    error_msg="Redis failed to become ready within ${COMPONENT_TIMEOUT}s"
+    error_msg="Redis failed to become ready within ${REDIS_TIMEOUT}s"
     log "❌ $error_msg"
     update_health "failed" "redis" "$error_msg"
     error "$error_msg"
