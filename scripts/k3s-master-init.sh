@@ -482,7 +482,7 @@ metadata:
   name: build-agents
   labels:
     name: build-agents
-    flui.cloud/managed: "true"
+    managed-by: "flui-cloud"
 EOF_NAMESPACE
 
 # Deploy PostgreSQL
