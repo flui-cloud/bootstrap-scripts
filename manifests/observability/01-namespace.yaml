@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: build-agents
+  labels:
+    name: build-agents
+    managed-by: "flui-cloud"

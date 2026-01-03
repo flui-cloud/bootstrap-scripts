@@ -12,6 +12,10 @@ CLUSTER_NAME="${CLUSTER_NAME}"
 K3S_TOKEN="${K3S_TOKEN}"
 K3S_VERSION="${K3S_VERSION:-v1.28.4+k3s1}"
 
+# Observability stack configuration
+DEPLOY_OBSERVABILITY_STACK="${DEPLOY_OBSERVABILITY_STACK:-false}"
+MANIFESTS_BASE_URL="${MANIFESTS_BASE_URL:-https://raw.githubusercontent.com/flui-cloud/bootstrap-scripts/master/manifests}"
+
 # Observability stack passwords
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD}"
 REDIS_PASSWORD="${REDIS_PASSWORD}"
@@ -449,594 +453,170 @@ log "✅ kubectl installed and configured"
 log ""
 
 # Count running K3s system pods
-TOTAL_PODS=$(kubectl get pods --all-namespaces --no-headers | wc -l)
-RUNNING_PODS=$(kubectl get pods --all-namespaces --no-headers --field-selector=status.phase=Running | wc -l)
-log "📊 K3s System Pods: $RUNNING_PODS/$TOTAL_PODS running"
-
 # ============================================================
-# STEP 11: Deploy Observability Stack
+# STEP 11: Deploy Observability Stack (Conditional)
 # ============================================================
-log ""
-log "=========================================="
-log "Deploying Observability Stack"
-log "=========================================="
+if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
+    log ""
+    log "=========================================="
+    log "Deploying Observability Stack"
+    log "=========================================="
 
-update_health "deploying" "observability-stack" ""
+    update_health "deploying" "observability-stack" ""
 
-# Get primary IP for NodePort access
-PRIMARY_IP=$(hostname -I | awk '{print $1}')
+    # Get primary IP for NodePort access
+    PRIMARY_IP=$(hostname -I | awk '{print $1}')
+    MASTER_IP="$PRIMARY_IP"
 
-# Create manifests directory for K3s auto-deploy
-MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
-mkdir -p "$MANIFEST_DIR"
+    # Create manifests directory for K3s auto-deploy
+    MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
+    mkdir -p "$MANIFEST_DIR"
 
-log "Manifest directory: $MANIFEST_DIR"
-log "Deploying components: namespace, postgres, redis, prometheus, loki, grafana"
+    log "Manifest directory: $MANIFEST_DIR"
+    log "Downloading manifests from: $MANIFESTS_BASE_URL/observability/"
+    log "Deploying components: namespace, postgres, redis, prometheus, loki, grafana"
 
-# Deploy namespace for build agents
-log "→ Deploying namespace..."
-cat > "$MANIFEST_DIR/01-namespace.yaml" <<'EOF_NAMESPACE'
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: build-agents
-  labels:
-    name: build-agents
-    managed-by: "flui-cloud"
-EOF_NAMESPACE
+    # Download and apply manifests from GitHub
+    for manifest in 01-namespace 02-postgres 03-redis 04-prometheus-config 05-prometheus 06-loki 07-grafana-datasources 08-grafana; do
+        log "→ Downloading ${manifest}.yaml..."
 
-# Deploy PostgreSQL
-log "→ Deploying PostgreSQL..."
-cat > "$MANIFEST_DIR/02-postgres.yaml" <<EOF_POSTGRES
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres
-  namespace: default
-  labels:
-    app: postgres
-spec:
-  type: NodePort
-  ports:
-    - port: 5432
-      targetPort: 5432
-      nodePort: 30432
-  selector:
-    app: postgres
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgres-data
-  namespace: default
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
-  storageClassName: local-path
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: postgres
-  namespace: default
-spec:
-  serviceName: postgres
-  replicas: 1
-  selector:
-    matchLabels:
-      app: postgres
-  template:
-    metadata:
-      labels:
-        app: postgres
-    spec:
-      containers:
-        - name: postgres
-          image: postgres:15-alpine
-          ports:
-            - containerPort: 5432
-          env:
-            - name: POSTGRES_DB
-              value: "fluicloud"
-            - name: POSTGRES_USER
-              value: "fluicloud"
-            - name: POSTGRES_PASSWORD
-              value: "$POSTGRES_PASSWORD"
-            - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
-          volumeMounts:
-            - name: postgres-data
-              mountPath: /var/lib/postgresql/data
-          livenessProbe:
-            exec:
-              command: ["pg_isready", "-U", "fluicloud"]
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command: ["pg_isready", "-U", "fluicloud"]
-            initialDelaySeconds: 10
-            periodSeconds: 5
-          resources:
-            requests:
-              memory: "256Mi"
-              cpu: "250m"
-            limits:
-              memory: "512Mi"
-              cpu: "500m"
-      volumes:
-        - name: postgres-data
-          persistentVolumeClaim:
-            claimName: postgres-data
-EOF_POSTGRES
+        # Download manifest
+        if ! curl -fsSL "$MANIFESTS_BASE_URL/observability/${manifest}.yaml" -o "/tmp/${manifest}.yaml"; then
+            error "Failed to download ${manifest}.yaml from $MANIFESTS_BASE_URL/observability/"
+        fi
 
-# Deploy Redis
-log "→ Deploying Redis..."
-cat > "$MANIFEST_DIR/03-redis.yaml" <<EOF_REDIS
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis
-  namespace: default
-spec:
-  type: NodePort
-  ports:
-    - port: 6379
-      targetPort: 6379
-      nodePort: 30379
-  selector:
-    app: redis
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: redis
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: redis
-  template:
-    metadata:
-      labels:
-        app: redis
-    spec:
-      containers:
-        - name: redis
-          image: redis:7-alpine
-          command: ["redis-server", "--requirepass", "$REDIS_PASSWORD"]
-          ports:
-            - containerPort: 6379
-          resources:
-            requests:
-              memory: "128Mi"
-              cpu: "100m"
-            limits:
-              memory: "256Mi"
-              cpu: "200m"
-EOF_REDIS
+        # Substitute environment variables (POSTGRES_PASSWORD, REDIS_PASSWORD, GRAFANA_PASSWORD, MASTER_IP)
+        # Note: envsubst is part of gettext-base package
+        if command -v envsubst &> /dev/null; then
+            envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
+        else
+            log "⚠️  envsubst not found, using sed for variable substitution..."
+            sed -e "s/\${POSTGRES_PASSWORD}/$POSTGRES_PASSWORD/g" \
+                -e "s/\${REDIS_PASSWORD}/$REDIS_PASSWORD/g" \
+                -e "s/\${GRAFANA_PASSWORD}/$GRAFANA_PASSWORD/g" \
+                -e "s/\${MASTER_IP}/$MASTER_IP/g" \
+                "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
+        fi
 
-# Deploy Prometheus ConfigMap
-log "→ Deploying Prometheus ConfigMap..."
-MASTER_IP=$(hostname -I | awk '{print $1}')
-cat > "$MANIFEST_DIR/04-prometheus-config.yaml" <<EOF_PROMETHEUS_CONFIG
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: prometheus-config
-  namespace: default
-  labels:
-    app: prometheus
-data:
-  prometheus.yml: |
-    global:
-      scrape_interval: 15s
-      evaluation_interval: 15s
-      external_labels:
-        cluster: 'flui-observability'
-        environment: 'production'
+        log "✅ ${manifest}.yaml deployed"
+        rm -f "/tmp/${manifest}.yaml"
+    done
 
-    scrape_configs:
-      # Self-monitoring
-      - job_name: 'prometheus'
-        static_configs:
-          - targets: ['localhost:9090']
+    log "✅ All manifests downloaded and deployed to $MANIFEST_DIR"
+    log "K3s will auto-apply these manifests..."
 
-      # Observability master node metrics
-      - job_name: 'observability-master'
-        static_configs:
-          - targets: ['${MASTER_IP}:9100']
-            labels:
-              node: 'master'
-              node_type: 'k3s-master'
-              cluster_type: 'observability'
+    # Wait for K3s to apply manifests and pods to be created (give it 30s)
+    log "Waiting 30s for K3s to create resources..."
+    sleep 30
 
-      # Kubernetes API server
-      - job_name: 'kubernetes-apiservers'
-        kubernetes_sd_configs:
-          - role: endpoints
-        scheme: https
-        tls_config:
-          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
-            action: keep
-            regex: default;kubernetes;https
+    # Wait for each component to be ready
+    log ""
+    log "Waiting for observability stack components to be ready..."
+    log "Maximum wait time: 10 minutes for databases, 5 minutes for other components"
 
-      # Kubernetes pods with prometheus.io/scrape annotation
-      - job_name: 'kubernetes-pods'
-        kubernetes_sd_configs:
-          - role: pod
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
-            action: keep
-            regex: true
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
-            action: replace
-            target_label: __metrics_path__
-            regex: (.+)
-          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
-            action: replace
-            regex: ([^:]+)(?::\d+)?;(\d+)
-            replacement: \$1:\$2
-            target_label: __address__
-          - action: labelmap
-            regex: __meta_kubernetes_pod_label_(.+)
-          - source_labels: [__meta_kubernetes_namespace]
-            action: replace
-            target_label: kubernetes_namespace
-          - source_labels: [__meta_kubernetes_pod_name]
-            action: replace
-            target_label: kubernetes_pod_name
-EOF_PROMETHEUS_CONFIG
+    COMPONENT_TIMEOUT=300   # 5 minutes for most components
+    POSTGRES_TIMEOUT=600    # 10 minutes for PostgreSQL (PVC binding + DB init)
+    REDIS_TIMEOUT=600       # 10 minutes for Redis (PVC binding)
 
-# Deploy Prometheus
-log "→ Deploying Prometheus..."
-cat > "$MANIFEST_DIR/05-prometheus.yaml" <<'EOF_PROMETHEUS'
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: prometheus
-  namespace: default
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: prometheus
-rules:
-  - apiGroups: [""]
-    resources: ["nodes", "pods", "services", "endpoints"]
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: prometheus
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: prometheus
-subjects:
-  - kind: ServiceAccount
-    name: prometheus
-    namespace: default
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: prometheus
-  namespace: default
-spec:
-  type: NodePort
-  ports:
-    - port: 9090
-      targetPort: 9090
-      nodePort: 30090
-  selector:
-    app: prometheus
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: prometheus
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: prometheus
-  template:
-    metadata:
-      labels:
-        app: prometheus
-    spec:
-      serviceAccountName: prometheus
-      containers:
-        - name: prometheus
-          image: prom/prometheus:v2.48.0
-          args:
-            - '--config.file=/etc/prometheus/prometheus.yml'
-            - '--storage.tsdb.path=/prometheus'
-            - '--storage.tsdb.retention.time=15d'
-            - '--web.enable-lifecycle'
-          ports:
-            - containerPort: 9090
-          volumeMounts:
-            - name: config
-              mountPath: /etc/prometheus
-            - name: storage
-              mountPath: /prometheus
-          resources:
-            requests:
-              memory: "512Mi"
-              cpu: "500m"
-            limits:
-              memory: "1Gi"
-              cpu: "1000m"
-          livenessProbe:
-            httpGet:
-              path: /-/healthy
-              port: 9090
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /-/ready
-              port: 9090
-            initialDelaySeconds: 5
-            periodSeconds: 5
-      volumes:
-        - name: config
-          configMap:
-            name: prometheus-config
-        - name: storage
-          emptyDir: {}
-EOF_PROMETHEUS
+    # Wait for Postgres
+    log "→ Waiting for PostgreSQL..."
+    update_health "deploying" "postgres" ""
+    if kubectl wait --for=condition=ready pod -l app=postgres --timeout=${POSTGRES_TIMEOUT}s 2>/dev/null; then
+        log "✅ PostgreSQL is ready"
+    else
+        error_msg="PostgreSQL failed to become ready within ${POSTGRES_TIMEOUT}s"
+        log "❌ $error_msg"
+        update_health "failed" "postgres" "$error_msg"
+        error "$error_msg"
+    fi
 
-# Deploy Loki
-log "→ Deploying Loki..."
-cat > "$MANIFEST_DIR/06-loki.yaml" <<'EOF_LOKI'
-apiVersion: v1
-kind: Service
-metadata:
-  name: loki
-  namespace: default
-spec:
-  type: NodePort
-  ports:
-    - port: 3100
-      targetPort: 3100
-      nodePort: 30100
-  selector:
-    app: loki
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: loki
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: loki
-  template:
-    metadata:
-      labels:
-        app: loki
-    spec:
-      containers:
-        - name: loki
-          image: grafana/loki:latest
-          ports:
-            - containerPort: 3100
-          resources:
-            requests:
-              memory: "256Mi"
-              cpu: "250m"
-            limits:
-              memory: "512Mi"
-              cpu: "500m"
-EOF_LOKI
+    # Wait for Redis
+    log "→ Waiting for Redis..."
+    update_health "deploying" "redis" ""
+    if kubectl wait --for=condition=ready pod -l app=redis --timeout=${REDIS_TIMEOUT}s 2>/dev/null; then
+        log "✅ Redis is ready"
+    else
+        error_msg="Redis failed to become ready within ${REDIS_TIMEOUT}s"
+        log "❌ $error_msg"
+        update_health "failed" "redis" "$error_msg"
+        error "$error_msg"
+    fi
 
-# Deploy Grafana Datasources ConfigMap
-log "→ Deploying Grafana Datasources ConfigMap..."
-cat > "$MANIFEST_DIR/07-grafana-datasources.yaml" <<'EOF_GRAFANA_DS'
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-datasources
-  namespace: default
-  labels:
-    app: grafana
-data:
-  datasources.yml: |
-    apiVersion: 1
-    datasources:
-      - name: Prometheus
-        type: prometheus
-        access: proxy
-        url: http://prometheus:9090
-        isDefault: true
-        editable: true
-        jsonData:
-          timeInterval: "15s"
+    # Wait for Prometheus
+    log "→ Waiting for Prometheus..."
+    update_health "deploying" "prometheus" ""
+    if kubectl wait --for=condition=ready pod -l app=prometheus --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+        log "✅ Prometheus is ready"
+    else
+        error_msg="Prometheus failed to become ready within ${COMPONENT_TIMEOUT}s"
+        log "❌ $error_msg"
+        update_health "failed" "prometheus" "$error_msg"
+        error "$error_msg"
+    fi
 
-      - name: Loki
-        type: loki
-        access: proxy
-        url: http://loki:3100
-        editable: true
-        jsonData:
-          maxLines: 1000
-EOF_GRAFANA_DS
+    # Wait for Loki
+    log "→ Waiting for Loki..."
+    update_health "deploying" "loki" ""
+    if kubectl wait --for=condition=ready pod -l app=loki --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+        log "✅ Loki is ready"
+    else
+        error_msg="Loki failed to become ready within ${COMPONENT_TIMEOUT}s"
+        log "❌ $error_msg"
+        update_health "failed" "loki" "$error_msg"
+        error "$error_msg"
+    fi
 
-# Deploy Grafana
-log "→ Deploying Grafana..."
-cat > "$MANIFEST_DIR/08-grafana.yaml" <<EOF_GRAFANA
-apiVersion: v1
-kind: Service
-metadata:
-  name: grafana
-  namespace: default
-spec:
-  type: NodePort
-  ports:
-    - port: 3000
-      targetPort: 3000
-      nodePort: 30300
-  selector:
-    app: grafana
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: grafana
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: grafana
-  template:
-    metadata:
-      labels:
-        app: grafana
-    spec:
-      containers:
-        - name: grafana
-          image: grafana/grafana:latest
-          ports:
-            - containerPort: 3000
-          env:
-            - name: GF_SECURITY_ADMIN_PASSWORD
-              value: "$GRAFANA_PASSWORD"
-            - name: GF_INSTALL_PLUGINS
-              value: ""
-          volumeMounts:
-            - name: datasources
-              mountPath: /etc/grafana/provisioning/datasources
-          resources:
-            requests:
-              memory: "256Mi"
-              cpu: "250m"
-            limits:
-              memory: "512Mi"
-              cpu: "500m"
-      volumes:
-        - name: datasources
-          configMap:
-            name: grafana-datasources
-EOF_GRAFANA
+    # Wait for Grafana
+    log "→ Waiting for Grafana..."
+    update_health "deploying" "grafana" ""
+    if kubectl wait --for=condition=ready pod -l app=grafana --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+        log "✅ Grafana is ready"
+    else
+        error_msg="Grafana failed to become ready within ${COMPONENT_TIMEOUT}s"
+        log "❌ $error_msg"
+        update_health "failed" "grafana" "$error_msg"
+        error "$error_msg"
+    fi
 
-log "✅ All manifests created in $MANIFEST_DIR"
-log "K3s will auto-apply these manifests..."
+    log ""
+    log "✅ All observability stack components are ready!"
 
-# Wait for K3s to apply manifests and pods to be created (give it 30s)
-log "Waiting 30s for K3s to create resources..."
-sleep 30
+    # Display service endpoints
+    log ""
+    log "=========================================="
+    log "Service Endpoints"
+    log "=========================================="
+    log "Grafana:    http://$PRIMARY_IP:30300 (admin/$GRAFANA_PASSWORD)"
+    log "Prometheus: http://$PRIMARY_IP:30090"
+    log "PostgreSQL: postgres:5432 (fluicloud/$POSTGRES_PASSWORD)"
+    log "Redis:      redis:6379 (password: $REDIS_PASSWORD)"
+    log "Loki:       http://$PRIMARY_IP:30100"
+    log ""
 
-# Wait for each component to be ready
-log ""
-log "Waiting for observability stack components to be ready..."
-log "Maximum wait time: 10 minutes for databases, 5 minutes for other components"
+    # Create marker file for observability stack success
+    touch /var/log/observability-stack-ready
+    log "✅ Marker file created: /var/log/observability-stack-ready"
 
-COMPONENT_TIMEOUT=300   # 5 minutes for most components
-POSTGRES_TIMEOUT=600    # 10 minutes for PostgreSQL (PVC binding + DB init)
-REDIS_TIMEOUT=600       # 10 minutes for Redis (PVC binding)
-
-# Wait for Postgres
-log "→ Waiting for PostgreSQL..."
-update_health "deploying" "postgres" ""
-if kubectl wait --for=condition=ready pod -l app=postgres --timeout=${POSTGRES_TIMEOUT}s 2>/dev/null; then
-    log "✅ PostgreSQL is ready"
+    # Update health status to ready
+    update_health "ready" "all" ""
 else
-    error_msg="PostgreSQL failed to become ready within ${POSTGRES_TIMEOUT}s"
-    log "❌ $error_msg"
-    update_health "failed" "postgres" "$error_msg"
-    error "$error_msg"
+    log ""
+    log "=========================================="
+    log "Skipping Observability Stack Deployment"
+    log "=========================================="
+    log "DEPLOY_OBSERVABILITY_STACK is set to '$DEPLOY_OBSERVABILITY_STACK'"
+    log "This is a workload cluster - observability stack will not be deployed"
+    log "K3s cluster is ready for workload deployment"
+    log ""
+
+    # Update health status to ready (K3s only)
+    update_health "ready" "k3s-only" ""
 fi
 
-# Wait for Redis
-log "→ Waiting for Redis..."
-update_health "deploying" "redis" ""
-if kubectl wait --for=condition=ready pod -l app=redis --timeout=${REDIS_TIMEOUT}s 2>/dev/null; then
-    log "✅ Redis is ready"
-else
-    error_msg="Redis failed to become ready within ${REDIS_TIMEOUT}s"
-    log "❌ $error_msg"
-    update_health "failed" "redis" "$error_msg"
-    error "$error_msg"
-fi
-
-# Wait for Prometheus
-log "→ Waiting for Prometheus..."
-update_health "deploying" "prometheus" ""
-if kubectl wait --for=condition=ready pod -l app=prometheus --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
-    log "✅ Prometheus is ready"
-else
-    error_msg="Prometheus failed to become ready within ${COMPONENT_TIMEOUT}s"
-    log "❌ $error_msg"
-    update_health "failed" "prometheus" "$error_msg"
-    error "$error_msg"
-fi
-
-# Wait for Loki
-log "→ Waiting for Loki..."
-update_health "deploying" "loki" ""
-if kubectl wait --for=condition=ready pod -l app=loki --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
-    log "✅ Loki is ready"
-else
-    error_msg="Loki failed to become ready within ${COMPONENT_TIMEOUT}s"
-    log "❌ $error_msg"
-    update_health "failed" "loki" "$error_msg"
-    error "$error_msg"
-fi
-
-# Wait for Grafana
-log "→ Waiting for Grafana..."
-update_health "deploying" "grafana" ""
-if kubectl wait --for=condition=ready pod -l app=grafana --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
-    log "✅ Grafana is ready"
-else
-    error_msg="Grafana failed to become ready within ${COMPONENT_TIMEOUT}s"
-    log "❌ $error_msg"
-    update_health "failed" "grafana" "$error_msg"
-    error "$error_msg"
-fi
-
-log ""
-log "✅ All observability stack components are ready!"
-
-# Display service endpoints
-log ""
-log "=========================================="
-log "Service Endpoints"
-log "=========================================="
-log "Grafana:    http://$PRIMARY_IP:30300 (admin/$GRAFANA_PASSWORD)"
-log "Prometheus: http://$PRIMARY_IP:30090"
-log "PostgreSQL: postgres:5432 (fluicloud/$POSTGRES_PASSWORD)"
-log "Redis:      redis:6379 (password: $REDIS_PASSWORD)"
-log "Loki:       http://$PRIMARY_IP:30100"
-log ""
-
-# Create marker file for K3s success
+# Create marker file for K3s success (always created)
 touch /var/log/k3s-master-ready
 log "✅ Marker file created: /var/log/k3s-master-ready"
 
-# Create marker file for observability stack success
-touch /var/log/observability-stack-ready
-log "✅ Marker file created: /var/log/observability-stack-ready"
-
-# Update health status to ready
-update_health "ready" "all" ""
-
-# ============================================================
 # STEP 12: Start Health Endpoint HTTP Server
 # ============================================================
 log ""
