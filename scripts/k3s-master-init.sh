@@ -16,6 +16,10 @@ K3S_VERSION="${K3S_VERSION:-v1.28.4+k3s1}"
 DEPLOY_OBSERVABILITY_STACK="${DEPLOY_OBSERVABILITY_STACK:-false}"
 MANIFESTS_BASE_URL="${MANIFESTS_BASE_URL:-https://raw.githubusercontent.com/flui-cloud/bootstrap-scripts/master/manifests}"
 
+# Multi-cluster observability configuration
+OBSERVABILITY_CLUSTER_IP="${OBSERVABILITY_CLUSTER_IP:-}"
+DEPLOY_MONITORING_AGENT="${DEPLOY_MONITORING_AGENT:-false}"
+
 # Observability stack passwords
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD}"
 REDIS_PASSWORD="${REDIS_PASSWORD}"
@@ -59,6 +63,10 @@ log "Cluster: $CLUSTER_NAME (ID: $CLUSTER_ID)"
 log "Instance: $INSTANCE_NAME (ID: $INSTANCE_ID)"
 log "Provider: $CLOUD_PROVIDER"
 log "K3s Version: $K3S_VERSION"
+log "Deploy Observability Stack: $DEPLOY_OBSERVABILITY_STACK"
+if [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
+    log "Observability Cluster IP: $OBSERVABILITY_CLUSTER_IP (logs will be forwarded)"
+fi
 
 # Initialize health status
 update_health "initializing" "k3s" ""
@@ -102,7 +110,17 @@ fi
 chmod +x /tmp/flui-modules/*.sh 2>/dev/null || true
 
 # Export monitoring endpoints for self-monitoring
-export LOKI_ENDPOINT="localhost:30100"
+# For workload clusters, override Loki endpoint to send logs to remote observability cluster
+# For observability clusters, keep localhost configuration
+if [ "$DEPLOY_OBSERVABILITY_STACK" = "false" ] && [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
+    # Workload cluster - send logs to remote observability cluster
+    export LOKI_ENDPOINT="${OBSERVABILITY_CLUSTER_IP}:30100"
+    log "Configuring workload cluster to send logs to observability cluster at ${OBSERVABILITY_CLUSTER_IP}:30100"
+else
+    # Observability cluster or no observability cluster configured - use localhost
+    export LOKI_ENDPOINT="localhost:30100"
+fi
+
 export PROMETHEUS_ENDPOINT="localhost:30090"
 export SERVER_TYPE="k3s-master"
 

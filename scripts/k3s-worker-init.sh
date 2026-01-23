@@ -14,6 +14,9 @@ K3S_URL="${K3S_URL}"
 K3S_VERSION="${K3S_VERSION:-v1.28.4+k3s1}"
 MASTER_IP="${MASTER_IP}"
 
+# Multi-cluster observability configuration
+OBSERVABILITY_CLUSTER_IP="${OBSERVABILITY_CLUSTER_IP:-}"
+
 LOG_FILE="/var/log/k3s-worker-init.log"
 
 log() {
@@ -35,6 +38,9 @@ log "Instance: $INSTANCE_NAME (ID: $INSTANCE_ID)"
 log "Provider: $CLOUD_PROVIDER"
 log "Master: $MASTER_IP"
 log "K3s Version: $K3S_VERSION"
+if [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
+    log "Observability Cluster IP: $OBSERVABILITY_CLUSTER_IP (logs will be forwarded)"
+fi
 
 # ============================================================
 # STEP 1: Run base Flui.cloud initialization
@@ -52,6 +58,43 @@ fi
 
 chmod +x /tmp/flui-init.sh
 
+# Download monitoring modules from GitHub
+log "Downloading monitoring modules..."
+mkdir -p /tmp/flui-modules
+
+# Construct modules URL by replacing the last 'scripts' with 'modules'
+MODULES_BASE_URL="${SCRIPTS_BASE_URL%/scripts}/modules"
+log "Downloading from $MODULES_BASE_URL..."
+
+if ! curl -fsSL "$MODULES_BASE_URL/node-exporter.sh" -o /tmp/flui-modules/node-exporter.sh; then
+    warn "Failed to download node-exporter.sh - monitoring may be disabled"
+fi
+
+if ! curl -fsSL "$MODULES_BASE_URL/vector.sh" -o /tmp/flui-modules/vector.sh; then
+    warn "Failed to download vector.sh - monitoring may be disabled"
+fi
+
+if ! curl -fsSL "$MODULES_BASE_URL/monitoring.sh" -o /tmp/flui-modules/monitoring.sh; then
+    warn "Failed to download monitoring.sh - monitoring may be disabled"
+fi
+
+chmod +x /tmp/flui-modules/*.sh 2>/dev/null || true
+
+# Export monitoring endpoints for log forwarding
+# For workload clusters, send logs to remote observability cluster
+if [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
+    # Workload cluster - send logs to remote observability cluster
+    export LOKI_ENDPOINT="${OBSERVABILITY_CLUSTER_IP}:30100"
+    log "Configuring workload cluster to send logs to observability cluster at ${OBSERVABILITY_CLUSTER_IP}:30100"
+else
+    # No observability cluster configured - use localhost (logs will be lost if no local Loki)
+    export LOKI_ENDPOINT="localhost:30100"
+    warn "No observability cluster configured - logs will be sent to localhost:30100"
+fi
+
+export PROMETHEUS_ENDPOINT="localhost:30090"
+export SERVER_TYPE="k3s-worker"
+
 # Export CA public key for SSH certificate authentication (if provided)
 if [[ -n "${FLUI_CA_PUBLIC_KEY:-}" ]]; then
     log "Exporting SSH CA public key for flui-init.sh..."
@@ -66,6 +109,20 @@ fi
 rm -f /tmp/flui-init.sh
 
 log "Flui.cloud base initialization completed successfully"
+
+# Verify Vector is configured correctly for remote Loki (if observability cluster is configured)
+if [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
+    log "Verifying Vector configuration for remote Loki..."
+    if [ -f /etc/vector/vector.toml ]; then
+        if grep -q "$OBSERVABILITY_CLUSTER_IP" /etc/vector/vector.toml; then
+            log "✅ Vector configured to send logs to observability cluster at $OBSERVABILITY_CLUSTER_IP"
+        else
+            warn "Vector configuration may not have been updated with observability cluster IP"
+        fi
+    else
+        warn "Vector configuration file not found at /etc/vector/vector.toml"
+    fi
+fi
 
 # ============================================================
 # STEP 2: Install kubectl
