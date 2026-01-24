@@ -278,6 +278,16 @@ inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_l
 path = "/var/log/vector/flui-%Y-%m-%d.log"
 encoding.codec = "json"
 compression = "gzip"
+
+# DEBUG Sink: Human-readable debug output with all fields
+[sinks.debug_console]
+type = "file"
+inputs = ["enrich_journald"]
+path = "/var/log/vector/debug-enriched.log"
+encoding.codec = "json"
+# Sample only 1% of logs to avoid flooding
+[sinks.debug_console.buffer]
+max_events = 100
 EOF
 
         # Replace placeholders with actual values
