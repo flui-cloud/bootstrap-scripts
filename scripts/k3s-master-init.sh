@@ -156,6 +156,22 @@ fi
 
 chmod +x /tmp/flui-modules/*.sh 2>/dev/null || true
 
+# Download diagnostic scripts and install to /usr/local/bin/
+log "Downloading diagnostic scripts..."
+if curl -fsSL "$SCRIPTS_BASE_URL/diagnose-monitoring.sh" -o /usr/local/bin/diagnose-monitoring.sh; then
+    chmod +x /usr/local/bin/diagnose-monitoring.sh
+    log "✓ Installed diagnose-monitoring.sh to /usr/local/bin/"
+else
+    warn "Failed to download diagnose-monitoring.sh - diagnostic tools may be limited"
+fi
+
+if curl -fsSL "$SCRIPTS_BASE_URL/check-observability-cluster.sh" -o /usr/local/bin/check-observability-cluster.sh; then
+    chmod +x /usr/local/bin/check-observability-cluster.sh
+    log "✓ Installed check-observability-cluster.sh to /usr/local/bin/"
+else
+    warn "Failed to download check-observability-cluster.sh - diagnostic tools may be limited"
+fi
+
 # Test connectivity to observability cluster BEFORE configuring monitoring
 if [ "$DEPLOY_OBSERVABILITY_STACK" = "false" ] && [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
     test_observability_connectivity "$OBSERVABILITY_CLUSTER_IP"
