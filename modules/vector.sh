@@ -187,6 +187,12 @@ source = '''
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "journald"
 .filename = "journald"
+
+# Extract cluster name from server_id (e.g., "workload-cluster-3" from "workload-cluster-3-master")
+.cluster_name = replace!("SERVER_ID_PLACEHOLDER", r'-(master|worker|node-\d+)$', "")
+
+# Extract service name from journald metadata (SYSLOG_IDENTIFIER or _SYSTEMD_UNIT)
+.service = .SYSLOG_IDENTIFIER ?? .UNIT ?? "unknown"
 '''
 
 # Transform: enrich syslog files
@@ -201,6 +207,12 @@ source = '''
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "syslog"
 .filename = replace!(.file, r'^.*/([^/]+)$', "$1")
+
+# Extract cluster name from server_id
+.cluster_name = replace!("SERVER_ID_PLACEHOLDER", r'-(master|worker|node-\d+)$', "")
+
+# For syslog, service is derived from filename (e.g., "syslog", "kern.log", "auth.log")
+.service = replace!(.filename, r'\.log$', "")
 '''
 
 # Transform: enrich init logs
@@ -215,6 +227,12 @@ source = '''
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "init"
 .filename = replace!(.file, r'^.*/([^/]+)$', "$1")
+
+# Extract cluster name from server_id
+.cluster_name = replace!("SERVER_ID_PLACEHOLDER", r'-(master|worker|node-\d+)$', "")
+
+# Service is the init script name (e.g., "flui-init", "k3s-master-init")
+.service = replace!(.filename, r'\.log$', "")
 '''
 
 # Transform: enrich application logs
@@ -229,6 +247,12 @@ source = '''
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "application"
 .filename = replace!(.file, r'^.*/([^/]+)$', "$1")
+
+# Extract cluster name from server_id
+.cluster_name = replace!("SERVER_ID_PLACEHOLDER", r'-(master|worker|node-\d+)$', "")
+
+# Service is the application log file name
+.service = replace!(.filename, r'\.log$', "")
 '''
 
 # Sink: Loki
@@ -237,9 +261,13 @@ type = "loki"
 inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_logs"]
 endpoint = "http://LOKI_ENDPOINT_PLACEHOLDER"
 encoding.codec = "json"
+labels.cluster_name = "{{ cluster_name }}"
+labels.server_id = "{{ server_id }}"
 labels.hostname = "{{ hostname }}"
+labels.service = "{{ service }}"
 labels.server_type = "{{ server_type }}"
 labels.cluster_type = "{{ cluster_type }}"
+labels.cloud_provider = "{{ cloud_provider }}"
 labels.source_type = "{{ source_type }}"
 labels.filename = "{{ filename }}"
 
