@@ -10,46 +10,67 @@ test_loki_connectivity() {
     local LOG_FILE="$2"
 
     echo "Testing connectivity to Loki endpoint: $LOKI_ENDPOINT" >> "$LOG_FILE"
+    echo "Starting connectivity test at $(date)" >> "$LOG_FILE"
 
     # Parse host and port
     local LOKI_HOST=$(echo "$LOKI_ENDPOINT" | cut -d':' -f1)
     local LOKI_PORT=$(echo "$LOKI_ENDPOINT" | cut -d':' -f2)
 
+    echo "Parsed: LOKI_HOST=$LOKI_HOST, LOKI_PORT=$LOKI_PORT" >> "$LOG_FILE"
+
     # Test 1: Ping host (optional, may fail if ICMP blocked)
-    if ping -c 1 -W 2 "$LOKI_HOST" &>/dev/null; then
+    echo "Test 1/4: Starting ping test..." >> "$LOG_FILE"
+    if timeout 3 ping -c 1 -W 2 "$LOKI_HOST" &>/dev/null; then
         echo "  ✓ Host $LOKI_HOST is reachable (ping)" >> "$LOG_FILE"
     else
         echo "  ⚠ Host $LOKI_HOST not responding to ping (may be blocked)" >> "$LOG_FILE"
     fi
+    echo "Test 1/4: Ping test completed" >> "$LOG_FILE"
 
     # Test 2: TCP connection to Loki port
+    echo "Test 2/4: Starting TCP connection test..." >> "$LOG_FILE"
     if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$LOKI_HOST/$LOKI_PORT" 2>/dev/null; then
         echo "  ✓ Port $LOKI_PORT is open on $LOKI_HOST" >> "$LOG_FILE"
     else
         echo "  ✗ Port $LOKI_PORT is NOT reachable on $LOKI_HOST" >> "$LOG_FILE"
         warn "Loki endpoint $LOKI_ENDPOINT is not reachable - logs may not be forwarded"
-        return 1
+        # NON facciamo return 1 qui - continuiamo comunque
     fi
+    echo "Test 2/4: TCP connection test completed" >> "$LOG_FILE"
 
     # Test 3: HTTP health check (if Loki has health endpoint)
+    echo "Test 3/4: Starting HTTP health check..." >> "$LOG_FILE"
     local HEALTH_URL="http://${LOKI_ENDPOINT}/ready"
-    if curl -f -s -m 3 "$HEALTH_URL" &>/dev/null; then
+    if timeout 5 curl -f -s -m 3 "$HEALTH_URL" &>/dev/null; then
         echo "  ✓ Loki health endpoint responding at $HEALTH_URL" >> "$LOG_FILE"
     else
         echo "  ⚠ Loki health endpoint not responding (endpoint may not support /ready)" >> "$LOG_FILE"
     fi
+    echo "Test 3/4: HTTP health check completed" >> "$LOG_FILE"
 
-    # Measure latency
-    local START_TIME=$(date +%s%N)
-    if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$LOKI_HOST/$LOKI_PORT" 2>/dev/null; then
-        local END_TIME=$(date +%s%N)
-        local LATENCY_MS=$(( (END_TIME - START_TIME) / 1000000 ))
-        echo "  ✓ Network latency to Loki: ${LATENCY_MS}ms" >> "$LOG_FILE"
+    # Test 4: Measure latency
+    echo "Test 4/4: Starting latency measurement..." >> "$LOG_FILE"
+    local START_TIME=$(date +%s%N 2>/dev/null || echo "0")
+    if [ "$START_TIME" != "0" ]; then
+        if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$LOKI_HOST/$LOKI_PORT" 2>/dev/null; then
+            local END_TIME=$(date +%s%N 2>/dev/null || echo "$START_TIME")
+            if [ "$END_TIME" != "$START_TIME" ]; then
+                local LATENCY_MS=$(( (END_TIME - START_TIME) / 1000000 ))
+                echo "  ✓ Network latency to Loki: ${LATENCY_MS}ms" >> "$LOG_FILE"
+            fi
+        fi
+    else
+        echo "  ⚠ nanosecond date not supported, skipping latency test" >> "$LOG_FILE"
     fi
+    echo "Test 4/4: Latency measurement completed" >> "$LOG_FILE"
 
-    echo "Connectivity test completed" >> "$LOG_FILE"
+    echo "Connectivity test completed at $(date)" >> "$LOG_FILE"
+    # Ritorniamo sempre 0 per non bloccare l'installazione
     return 0
 }
+
+# Export function so it can be called from within timeout
+export -f test_loki_connectivity
 
 install_vector() {
     local LOKI_ENDPOINT="${1:-}"
@@ -105,7 +126,15 @@ install_vector() {
         echo "Configuring Vector with Loki endpoint: $LOKI_ENDPOINT" >> "$INSTALL_LOG"
 
         # Test connectivity to Loki endpoint BEFORE configuring
-        test_loki_connectivity "$LOKI_ENDPOINT" "$INSTALL_LOG"
+        # WRAPPED con timeout globale e gestione errori per evitare blocchi
+        echo "About to start connectivity test..." >> "$INSTALL_LOG"
+        if timeout 30 bash -c "test_loki_connectivity '$LOKI_ENDPOINT' '$INSTALL_LOG'"; then
+            echo "✓ Connectivity test completed successfully" >> "$INSTALL_LOG"
+        else
+            warn "Connectivity test failed or timed out, but continuing installation"
+            echo "⚠ Connectivity test failed or timed out (exit code: $?), continuing anyway" >> "$INSTALL_LOG"
+        fi
+        echo "Connectivity test phase finished, proceeding with configuration..." >> "$INSTALL_LOG"
 
         cat > /etc/vector/vector.toml << 'EOF'
 # Global configuration
@@ -221,17 +250,6 @@ inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_l
 path = "/var/log/vector/flui-%Y-%m-%d.log"
 encoding.codec = "json"
 compression = "gzip"
-
-# Source: Internal metrics from Vector itself
-[sources.internal_metrics]
-type = "internal_metrics"
-
-# Sink: Vector internal metrics to file for monitoring
-[sinks.vector_metrics_file]
-type = "file"
-inputs = ["internal_metrics"]
-path = "/var/log/vector/vector-metrics-%Y-%m-%d.log"
-encoding.codec = "json"
 EOF
 
         # Replace placeholders with actual values
