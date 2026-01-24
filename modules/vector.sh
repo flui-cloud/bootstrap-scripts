@@ -208,7 +208,7 @@ source = '''
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "syslog"
-.filename = replace(.file, r'^.*/', "")
+.filename = replace(to_string!(.file), r'^.*/', "")
 
 # Extract cluster name from server_id
 .cluster_name = replace("SERVER_ID_PLACEHOLDER", r'-(master|worker|node-\d+)$', "")
@@ -228,7 +228,7 @@ source = '''
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "init"
-.filename = replace(.file, r'^.*/', "")
+.filename = replace(to_string!(.file), r'^.*/', "")
 
 # Extract cluster name from server_id
 .cluster_name = replace("SERVER_ID_PLACEHOLDER", r'-(master|worker|node-\d+)$', "")
@@ -248,7 +248,7 @@ source = '''
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "application"
-.filename = replace(.file, r'^.*/', "")
+.filename = replace(to_string!(.file), r'^.*/', "")
 
 # Extract cluster name from server_id
 .cluster_name = replace("SERVER_ID_PLACEHOLDER", r'-(master|worker|node-\d+)$', "")
