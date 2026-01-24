@@ -4,22 +4,94 @@
 # Version: 0.34.1
 # Supports dynamic Loki endpoint configuration with enhanced logging
 
+# Test connectivity to Loki endpoint
+test_loki_connectivity() {
+    local LOKI_ENDPOINT="$1"
+    local LOG_FILE="$2"
+
+    echo "Testing connectivity to Loki endpoint: $LOKI_ENDPOINT" >> "$LOG_FILE"
+
+    # Parse host and port
+    local LOKI_HOST=$(echo "$LOKI_ENDPOINT" | cut -d':' -f1)
+    local LOKI_PORT=$(echo "$LOKI_ENDPOINT" | cut -d':' -f2)
+
+    # Test 1: Ping host (optional, may fail if ICMP blocked)
+    if ping -c 1 -W 2 "$LOKI_HOST" &>/dev/null; then
+        echo "  ✓ Host $LOKI_HOST is reachable (ping)" >> "$LOG_FILE"
+    else
+        echo "  ⚠ Host $LOKI_HOST not responding to ping (may be blocked)" >> "$LOG_FILE"
+    fi
+
+    # Test 2: TCP connection to Loki port
+    if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$LOKI_HOST/$LOKI_PORT" 2>/dev/null; then
+        echo "  ✓ Port $LOKI_PORT is open on $LOKI_HOST" >> "$LOG_FILE"
+    else
+        echo "  ✗ Port $LOKI_PORT is NOT reachable on $LOKI_HOST" >> "$LOG_FILE"
+        warn "Loki endpoint $LOKI_ENDPOINT is not reachable - logs may not be forwarded"
+        return 1
+    fi
+
+    # Test 3: HTTP health check (if Loki has health endpoint)
+    local HEALTH_URL="http://${LOKI_ENDPOINT}/ready"
+    if curl -f -s -m 3 "$HEALTH_URL" &>/dev/null; then
+        echo "  ✓ Loki health endpoint responding at $HEALTH_URL" >> "$LOG_FILE"
+    else
+        echo "  ⚠ Loki health endpoint not responding (endpoint may not support /ready)" >> "$LOG_FILE"
+    fi
+
+    # Measure latency
+    local START_TIME=$(date +%s%N)
+    if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$LOKI_HOST/$LOKI_PORT" 2>/dev/null; then
+        local END_TIME=$(date +%s%N)
+        local LATENCY_MS=$(( (END_TIME - START_TIME) / 1000000 ))
+        echo "  ✓ Network latency to Loki: ${LATENCY_MS}ms" >> "$LOG_FILE"
+    fi
+
+    echo "Connectivity test completed" >> "$LOG_FILE"
+    return 0
+}
+
 install_vector() {
     local LOKI_ENDPOINT="${1:-}"
     local SERVER_TYPE="${2:-generic}"
     local SERVER_ID="${3:-unknown}"
     local CLOUD_PROVIDER="${4:-unknown}"
 
+    # Create log directory for Vector installation
+    mkdir -p /var/log/flui/vector
+    local INSTALL_LOG="/var/log/flui/vector/install.log"
+
     log "Installing Vector v0.34.1..."
     log "Configuration: SERVER_TYPE=${SERVER_TYPE}, SERVER_ID=${SERVER_ID}, LOKI_ENDPOINT=${LOKI_ENDPOINT}"
 
+    # Log to dedicated file
+    {
+        echo "=== Vector Installation Started ==="
+        echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "Server Type: ${SERVER_TYPE}"
+        echo "Server ID: ${SERVER_ID}"
+        echo "Cloud Provider: ${CLOUD_PROVIDER}"
+        echo "Loki Endpoint: ${LOKI_ENDPOINT:-not configured}"
+        echo "=================================="
+    } >> "$INSTALL_LOG"
+
     # Download and install Vector
     cd /tmp
-    wget -q https://packages.timber.io/vector/0.34.1/vector-0.34.1-x86_64-unknown-linux-musl.tar.gz
-    tar xzf vector-0.34.1-x86_64-unknown-linux-musl.tar.gz
+    echo "Downloading Vector..." >> "$INSTALL_LOG"
+
+    if wget -q https://packages.timber.io/vector/0.34.1/vector-0.34.1-x86_64-unknown-linux-musl.tar.gz 2>> "$INSTALL_LOG"; then
+        echo "✓ Vector downloaded successfully" >> "$INSTALL_LOG"
+    else
+        echo "✗ Failed to download Vector" >> "$INSTALL_LOG"
+        error "Failed to download Vector - check $INSTALL_LOG"
+    fi
+
+    tar xzf vector-0.34.1-x86_64-unknown-linux-musl.tar.gz 2>> "$INSTALL_LOG"
     cp vector-x86_64-unknown-linux-musl/bin/vector /usr/local/bin/
     chmod +x /usr/local/bin/vector
     rm -rf vector-*
+
+    echo "✓ Vector binary installed to /usr/local/bin/vector" >> "$INSTALL_LOG"
 
     # Create required directories
     mkdir -p /etc/vector
@@ -30,7 +102,15 @@ install_vector() {
     # Generate Vector configuration with conditional Loki sink
     if [ -n "$LOKI_ENDPOINT" ]; then
         log "Configuring Vector with Loki endpoint: $LOKI_ENDPOINT"
+        echo "Configuring Vector with Loki endpoint: $LOKI_ENDPOINT" >> "$INSTALL_LOG"
+
+        # Test connectivity to Loki endpoint BEFORE configuring
+        test_loki_connectivity "$LOKI_ENDPOINT" "$INSTALL_LOG"
+
         cat > /etc/vector/vector.toml << 'EOF'
+# Global configuration
+data_dir = "/var/lib/vector"
+
 # API interna per health checks
 [api]
 enabled = true
@@ -141,6 +221,17 @@ inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_l
 path = "/var/log/vector/flui-%Y-%m-%d.log"
 encoding.codec = "json"
 compression = "gzip"
+
+# Source: Internal metrics from Vector itself
+[sources.internal_metrics]
+type = "internal_metrics"
+
+# Sink: Vector internal metrics to file for monitoring
+[sinks.vector_metrics_file]
+type = "file"
+inputs = ["internal_metrics"]
+path = "/var/log/vector/vector-metrics-%Y-%m-%d.log"
+encoding.codec = "json"
 EOF
 
         # Replace placeholders with actual values
@@ -234,9 +325,49 @@ EOF
 
     sleep 3
 
+    # Enhanced health check with detailed logging
+    echo "=== Vector Health Check ===" >> "$INSTALL_LOG"
     if curl -f http://localhost:8686/health &>/dev/null; then
         log "✅ Vector installed and responding on port 8686"
+        echo "✓ Vector API health check passed" >> "$INSTALL_LOG"
+
+        # Get Vector version and config info
+        if command -v vector &>/dev/null; then
+            VECTOR_VERSION=$(vector --version 2>/dev/null | head -n1)
+            echo "Vector Version: $VECTOR_VERSION" >> "$INSTALL_LOG"
+        fi
+
+        # Show configured Loki endpoint
+        if [ -f /etc/vector/vector.toml ] && [ -n "$LOKI_ENDPOINT" ]; then
+            if grep -q "$LOKI_ENDPOINT" /etc/vector/vector.toml; then
+                echo "✓ Loki endpoint configured: $LOKI_ENDPOINT" >> "$INSTALL_LOG"
+            else
+                echo "⚠ Loki endpoint NOT found in config (expected: $LOKI_ENDPOINT)" >> "$INSTALL_LOG"
+                warn "Vector config may not have been updated correctly"
+            fi
+        fi
+
+        # Check systemd service status
+        if systemctl is-active --quiet vector; then
+            echo "✓ Vector systemd service is active" >> "$INSTALL_LOG"
+        else
+            echo "✗ Vector systemd service is NOT active" >> "$INSTALL_LOG"
+        fi
+
     else
         warn "Vector installed but health check failed - service may still be starting"
+        echo "✗ Vector API health check failed" >> "$INSTALL_LOG"
+
+        # Debug info
+        echo "Systemd status:" >> "$INSTALL_LOG"
+        systemctl status vector --no-pager >> "$INSTALL_LOG" 2>&1 || true
+
+        echo "Last 20 lines of journald logs:" >> "$INSTALL_LOG"
+        journalctl -u vector -n 20 --no-pager >> "$INSTALL_LOG" 2>&1 || true
     fi
+
+    echo "=== Vector Installation Complete ===" >> "$INSTALL_LOG"
+    echo "Installation log available at: $INSTALL_LOG" >> "$INSTALL_LOG"
+
+    log "Vector installation log: $INSTALL_LOG"
 }

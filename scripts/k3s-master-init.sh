@@ -58,6 +58,53 @@ update_health() {
 EOF
 }
 
+# Test connectivity to observability cluster (for workload clusters)
+test_observability_connectivity() {
+    local OBS_CLUSTER_IP="$1"
+
+    if [ -z "$OBS_CLUSTER_IP" ]; then
+        return 0  # No observability cluster configured, skip test
+    fi
+
+    log "Testing connectivity to observability cluster at $OBS_CLUSTER_IP..."
+
+    # Test 1: Ping (may fail if ICMP blocked)
+    if ping -c 2 -W 3 "$OBS_CLUSTER_IP" &>/dev/null; then
+        log "  ✓ Observability cluster host is reachable (ping)"
+    else
+        warn "  ⚠ Observability cluster not responding to ping (may be blocked)"
+    fi
+
+    # Test 2: TCP connection to Loki port (30100)
+    log "  Testing Loki port (30100)..."
+    if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$OBS_CLUSTER_IP/30100" 2>/dev/null; then
+        log "  ✓ Loki port 30100 is reachable"
+    else
+        warn "  ✗ Loki port 30100 is NOT reachable - logs will not be forwarded"
+        warn "    Check firewall rules on observability cluster"
+    fi
+
+    # Test 3: TCP connection to Prometheus port (30090) - optional
+    log "  Testing Prometheus port (30090)..."
+    if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$OBS_CLUSTER_IP/30090" 2>/dev/null; then
+        log "  ✓ Prometheus port 30090 is reachable"
+    else
+        warn "  ⚠ Prometheus port 30090 is NOT reachable - metrics scraping may fail"
+    fi
+
+    # Measure network latency
+    local START_TIME=$(date +%s%N 2>/dev/null || echo "0")
+    if timeout 3 bash -c "cat < /dev/null > /dev/tcp/$OBS_CLUSTER_IP/30100" 2>/dev/null; then
+        local END_TIME=$(date +%s%N 2>/dev/null || echo "$START_TIME")
+        if [ "$START_TIME" != "0" ] && [ "$END_TIME" != "$START_TIME" ]; then
+            local LATENCY_MS=$(( (END_TIME - START_TIME) / 1000000 ))
+            log "  ℹ Network latency to observability cluster: ${LATENCY_MS}ms"
+        fi
+    fi
+
+    log "Connectivity test to observability cluster completed"
+}
+
 log "=== K3s Master Node Initialization ==="
 log "Cluster: $CLUSTER_NAME (ID: $CLUSTER_ID)"
 log "Instance: $INSTANCE_NAME (ID: $INSTANCE_ID)"
@@ -108,6 +155,11 @@ if ! curl -fsSL "$MODULES_BASE_URL/monitoring.sh" -o /tmp/flui-modules/monitorin
 fi
 
 chmod +x /tmp/flui-modules/*.sh 2>/dev/null || true
+
+# Test connectivity to observability cluster BEFORE configuring monitoring
+if [ "$DEPLOY_OBSERVABILITY_STACK" = "false" ] && [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
+    test_observability_connectivity "$OBSERVABILITY_CLUSTER_IP"
+fi
 
 # Export monitoring endpoints for self-monitoring
 # For workload clusters, override Loki endpoint to send logs to remote observability cluster
