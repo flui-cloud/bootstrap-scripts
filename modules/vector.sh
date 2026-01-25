@@ -77,13 +77,14 @@ install_vector() {
     local SERVER_TYPE="${2:-generic}"
     local SERVER_ID="${3:-unknown}"
     local CLOUD_PROVIDER="${4:-unknown}"
+    local CLUSTER_ID="${5:-unknown}"
 
     # Create log directory for Vector installation
     mkdir -p /var/log/flui/vector
     local INSTALL_LOG="/var/log/flui/vector/install.log"
 
     log "Installing Vector v0.34.1..."
-    log "Configuration: SERVER_TYPE=${SERVER_TYPE}, SERVER_ID=${SERVER_ID}, LOKI_ENDPOINT=${LOKI_ENDPOINT}"
+    log "Configuration: SERVER_TYPE=${SERVER_TYPE}, SERVER_ID=${SERVER_ID}, CLUSTER_ID=${CLUSTER_ID}, LOKI_ENDPOINT=${LOKI_ENDPOINT}"
 
     # Log to dedicated file
     {
@@ -91,6 +92,7 @@ install_vector() {
         echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
         echo "Server Type: ${SERVER_TYPE}"
         echo "Server ID: ${SERVER_ID}"
+        echo "Cluster ID: ${CLUSTER_ID}"
         echo "Cloud Provider: ${CLOUD_PROVIDER}"
         echo "Loki Endpoint: ${LOKI_ENDPOINT:-not configured}"
         echo "=================================="
@@ -183,6 +185,7 @@ source = '''
 .hostname = get_hostname!()
 .server_type = "SERVER_TYPE_PLACEHOLDER"
 .server_id = "SERVER_ID_PLACEHOLDER"
+.cluster_id = "CLUSTER_ID_PLACEHOLDER"
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "journald"
@@ -205,6 +208,7 @@ source = '''
 .hostname = get_hostname!()
 .server_type = "SERVER_TYPE_PLACEHOLDER"
 .server_id = "SERVER_ID_PLACEHOLDER"
+.cluster_id = "CLUSTER_ID_PLACEHOLDER"
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "syslog"
@@ -225,6 +229,7 @@ source = '''
 .hostname = get_hostname!()
 .server_type = "SERVER_TYPE_PLACEHOLDER"
 .server_id = "SERVER_ID_PLACEHOLDER"
+.cluster_id = "CLUSTER_ID_PLACEHOLDER"
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "init"
@@ -245,6 +250,7 @@ source = '''
 .hostname = get_hostname!()
 .server_type = "SERVER_TYPE_PLACEHOLDER"
 .server_id = "SERVER_ID_PLACEHOLDER"
+.cluster_id = "CLUSTER_ID_PLACEHOLDER"
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "application"
@@ -263,6 +269,7 @@ type = "loki"
 inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_logs"]
 endpoint = "http://LOKI_ENDPOINT_PLACEHOLDER"
 encoding.codec = "json"
+labels.cluster_id = "{{ cluster_id }}"
 labels.cluster_name = "{{ cluster_name }}"
 labels.server_id = "{{ server_id }}"
 labels.hostname = "{{ hostname }}"
@@ -295,6 +302,7 @@ EOF
         # Replace placeholders with actual values
         sed -i "s|SERVER_TYPE_PLACEHOLDER|${SERVER_TYPE}|g" /etc/vector/vector.toml
         sed -i "s|SERVER_ID_PLACEHOLDER|${SERVER_ID}|g" /etc/vector/vector.toml
+        sed -i "s|CLUSTER_ID_PLACEHOLDER|${CLUSTER_ID}|g" /etc/vector/vector.toml
         sed -i "s|CLOUD_PROVIDER_PLACEHOLDER|${CLOUD_PROVIDER}|g" /etc/vector/vector.toml
         sed -i "s|LOKI_ENDPOINT_PLACEHOLDER|${LOKI_ENDPOINT}|g" /etc/vector/vector.toml
 
@@ -331,6 +339,7 @@ source = '''
 .hostname = get_hostname!()
 .server_type = "SERVER_TYPE_PLACEHOLDER"
 .server_id = "SERVER_ID_PLACEHOLDER"
+.cluster_id = "CLUSTER_ID_PLACEHOLDER"
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 '''
 
@@ -352,6 +361,7 @@ EOF
         # Replace placeholders
         sed -i "s|SERVER_TYPE_PLACEHOLDER|${SERVER_TYPE}|g" /etc/vector/vector.toml
         sed -i "s|SERVER_ID_PLACEHOLDER|${SERVER_ID}|g" /etc/vector/vector.toml
+        sed -i "s|CLUSTER_ID_PLACEHOLDER|${CLUSTER_ID}|g" /etc/vector/vector.toml
         sed -i "s|CLOUD_PROVIDER_PLACEHOLDER|${CLOUD_PROVIDER}|g" /etc/vector/vector.toml
     fi
 

@@ -14,12 +14,14 @@ install_monitoring() {
     local SERVER_TYPE="${3:-generic}"
     local SERVER_ID="${4:-unknown}"
     local CLOUD_PROVIDER="${5:-unknown}"
+    local CLUSTER_ID="${6:-unknown}"
 
     log "=========================================="
     log "Flui Monitoring Installation"
     log "=========================================="
     log "Server Type: ${SERVER_TYPE}"
     log "Server ID: ${SERVER_ID}"
+    log "Cluster ID: ${CLUSTER_ID}"
     log "Cloud Provider: ${CLOUD_PROVIDER}"
     log "Prometheus Endpoint: ${PROMETHEUS_ENDPOINT:-not configured}"
     log "Loki Endpoint: ${LOKI_ENDPOINT:-not configured}"
@@ -29,7 +31,7 @@ install_monitoring() {
     install_node_exporter
 
     # Install Vector for log aggregation
-    install_vector "$LOKI_ENDPOINT" "$SERVER_TYPE" "$SERVER_ID" "$CLOUD_PROVIDER"
+    install_vector "$LOKI_ENDPOINT" "$SERVER_TYPE" "$SERVER_ID" "$CLOUD_PROVIDER" "$CLUSTER_ID"
 
     # Configure firewall rules for monitoring
     configure_monitoring_firewall

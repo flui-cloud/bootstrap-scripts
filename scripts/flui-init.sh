@@ -17,6 +17,7 @@ LOKI_ENDPOINT="${LOKI_ENDPOINT:-}"
 SERVER_TYPE="${SERVER_TYPE:-vps}"
 SERVER_ID="${INSTANCE_ID:-unknown}"
 CLOUD_PROVIDER="${CLOUD_PROVIDER:-unknown}"
+CLUSTER_ID="${CLUSTER_ID:-unknown}"
 
 # Colors
 readonly RED='\033[0;31m'
@@ -374,7 +375,7 @@ main() {
     # Use modular monitoring installation (Node Exporter + Vector)
     # Note: Monitoring modules are optional and loaded conditionally above
     if type install_monitoring &>/dev/null; then
-        install_monitoring "$PROMETHEUS_ENDPOINT" "$LOKI_ENDPOINT" "$SERVER_TYPE" "$SERVER_ID" "$CLOUD_PROVIDER"
+        install_monitoring "$PROMETHEUS_ENDPOINT" "$LOKI_ENDPOINT" "$SERVER_TYPE" "$SERVER_ID" "$CLOUD_PROVIDER" "$CLUSTER_ID"
     else
         log "⚠️  Monitoring installation skipped (modules not available)"
     fi
