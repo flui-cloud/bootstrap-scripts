@@ -67,3 +67,21 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: kubernetes_pod_name
+
+      # HTTP Service Discovery for all Flui-managed infrastructure
+      # Dynamically discovers VPS servers, K3s cluster nodes, and build agents
+      - job_name: 'flui-infrastructure'
+        http_sd_configs:
+          - url: '${FLUI_API_ENDPOINT}/api/v1/observability/prometheus/targets'
+            refresh_interval: 30s
+        relabel_configs:
+          - source_labels: [__meta_cluster_id]
+            target_label: cluster_id
+          - source_labels: [__meta_cluster_name]
+            target_label: cluster_name
+          - source_labels: [__meta_cluster_type]
+            target_label: cluster_type
+          - source_labels: [__meta_node_type]
+            target_label: node_type
+          - source_labels: [__meta_cloud_provider]
+            target_label: cloud_provider

@@ -190,6 +190,7 @@ else
 fi
 
 export PROMETHEUS_ENDPOINT="localhost:30090"
+export FLUI_API_ENDPOINT="${FLUI_API_ENDPOINT:-http://localhost:3000}"
 export SERVER_TYPE="k3s-master"
 
 # Export CA public key for SSH certificate authentication (if provided)
@@ -571,7 +572,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             error "Failed to download ${manifest}.yaml from $MANIFESTS_BASE_URL/observability/"
         fi
 
-        # Substitute environment variables (POSTGRES_PASSWORD, REDIS_PASSWORD, GRAFANA_PASSWORD, MASTER_IP)
+        # Substitute environment variables (POSTGRES_PASSWORD, REDIS_PASSWORD, GRAFANA_PASSWORD, MASTER_IP, FLUI_API_ENDPOINT)
         # Note: envsubst is part of gettext-base package
         if command -v envsubst &> /dev/null; then
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
@@ -581,6 +582,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s/\${REDIS_PASSWORD}/$REDIS_PASSWORD/g" \
                 -e "s/\${GRAFANA_PASSWORD}/$GRAFANA_PASSWORD/g" \
                 -e "s/\${MASTER_IP}/$MASTER_IP/g" \
+                -e "s|\${FLUI_API_ENDPOINT}|$FLUI_API_ENDPOINT|g" \
                 "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         fi
 
