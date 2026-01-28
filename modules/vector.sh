@@ -401,8 +401,8 @@ EOF
 
         # Get Vector version and config info
         if command -v vector &>/dev/null; then
-            VECTOR_VERSION=$(vector --version 2>/dev/null | head -n1)
-            echo "Vector Version: $VECTOR_VERSION" >> "$INSTALL_LOG"
+            INSTALLED_VECTOR_VERSION=$(vector --version 2>/dev/null | head -n1)
+            echo "Vector Version: $INSTALLED_VECTOR_VERSION" >> "$INSTALL_LOG"
         fi
 
         # Show configured Loki endpoint
