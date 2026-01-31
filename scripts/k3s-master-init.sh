@@ -553,7 +553,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
 
     # Get primary IP for NodePort access
     PRIMARY_IP=$(hostname -I | awk '{print $1}')
-    MASTER_IP="$PRIMARY_IP"
+    export MASTER_IP="$PRIMARY_IP"
 
     # Create manifests directory for K3s auto-deploy
     MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
