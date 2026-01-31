@@ -229,14 +229,49 @@ else
         chmod +x kubectl
         mv kubectl /usr/local/bin/kubectl
     }
+
+    # Wait for snap to update PATH and make kubectl available
+    log "Waiting for snap to configure kubectl..."
+    sleep 3
+
+    # Retry logic: wait up to 10 seconds for kubectl to be available
+    RETRY_COUNT=0
+    MAX_RETRIES=10
+    until command -v kubectl &> /dev/null; do
+        if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+            warn "kubectl not found in PATH after ${MAX_RETRIES} retries, trying curl method..."
+            KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+            curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+            chmod +x kubectl
+            mv kubectl /usr/local/bin/kubectl
+            break
+        fi
+        log "Waiting for kubectl to be available in PATH (attempt $((RETRY_COUNT + 1))/${MAX_RETRIES})..."
+        sleep 1
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+    done
 fi
 
 # Verify kubectl installation
+log "Verifying kubectl installation..."
 if command -v kubectl &> /dev/null; then
+    log "kubectl found in PATH: $(which kubectl)"
+
+    # Disable pipefail temporarily for kubectl version check
+    # (kubectl version may have non-zero exit code in some cases)
+    set +e
     KUBECTL_VERSION=$(kubectl version --client --short 2>/dev/null || kubectl version --client 2>&1 | head -1)
-    log "✅ kubectl installed: $KUBECTL_VERSION"
+    KUBECTL_EXIT_CODE=$?
+    set -e
+
+    if [ $KUBECTL_EXIT_CODE -eq 0 ]; then
+        log "✅ kubectl installed: $KUBECTL_VERSION"
+    else
+        warn "kubectl version check returned exit code $KUBECTL_EXIT_CODE, but kubectl is available"
+        log "✅ kubectl installed at $(which kubectl)"
+    fi
 else
-    error "kubectl installation failed"
+    error "kubectl installation failed - command not found"
 fi
 
 # ============================================================
