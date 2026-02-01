@@ -284,20 +284,13 @@ install_ca_public_key() {
 configure_security() {
     log "Configuring security..."
 
-    if ! apt-get install -qq -y ufw fail2ban; then
+    if ! apt-get install -qq -y fail2ban; then
         warn "Failed to install security packages"
         return
     fi
 
-    ufw --force reset &>/dev/null
-    ufw --force enable &>/dev/null
-
     local ssh_port=$(ss -tlnp | grep sshd | awk '{print $4}' | cut -d: -f2 | head -1)
     ssh_port=${ssh_port:-22}
-    ufw allow "$ssh_port/tcp" comment "SSH" &>/dev/null
-
-    # Note: Monitoring firewall rules (ports 9100, 8686) are now managed
-    # by configure_monitoring_firewall() in modules/monitoring.sh
 
     cat > /etc/fail2ban/jail.local << EOF
 [DEFAULT]

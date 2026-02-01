@@ -199,13 +199,6 @@ echo ""
 echo "Active network interfaces:"
 ip addr show | grep -E "^[0-9]+:|inet " | grep -v "127.0.0.1" || echo "  No interfaces found"
 
-# Show firewall status (if ufw is installed)
-if command -v ufw &>/dev/null; then
-    echo ""
-    echo "Firewall status:"
-    sudo ufw status 2>/dev/null || echo "  Unable to check firewall status"
-fi
-
 #================================================#
 # 8. Summary
 #================================================#
@@ -244,7 +237,6 @@ else
     echo "     mtr $OBSERVABILITY_IP"
     echo ""
     echo "  5. Check firewall on this node (workload cluster):"
-    echo "     sudo ufw status"
     echo "     sudo iptables -L -n"
     exit 1
 fi

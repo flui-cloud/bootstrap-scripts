@@ -745,15 +745,6 @@ log "✅ Marker file created: /var/log/k3s-master-ready"
 log ""
 log "Starting health endpoint HTTP server on port 8080..."
 
-# Open port 8080 in UFW firewall (if UFW is active)
-if command -v ufw &> /dev/null; then
-    log "Opening port 8080 in UFW firewall..."
-    ufw allow 8080/tcp 2>&1 | tee -a "$LOG_FILE" || log "⚠️  Failed to add UFW rule (may not be enabled)"
-    log "✅ Port 8080 opened in firewall"
-else
-    log "⚠️  UFW not found, skipping firewall configuration"
-fi
-
 # Create observability directory
 mkdir -p /opt/observability
 

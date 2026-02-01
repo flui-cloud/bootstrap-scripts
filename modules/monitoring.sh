@@ -146,24 +146,7 @@ EOF
     log "=========================================="
 }
 
-configure_monitoring_firewall() {
-    log "Configuring firewall rules for monitoring..."
-
-    # Allow Node Exporter (9100) from private networks
-    ufw allow from 10.0.0.0/8 to any port 9100 comment 'Node Exporter - Prometheus metrics' || true
-    ufw allow from 172.16.0.0/12 to any port 9100 comment 'Node Exporter - Prometheus metrics' || true
-    ufw allow from 192.168.0.0/16 to any port 9100 comment 'Node Exporter - Prometheus metrics' || true
-
-    # Allow Vector API (8686) from private networks
-    ufw allow from 10.0.0.0/8 to any port 8686 comment 'Vector API' || true
-    ufw allow from 172.16.0.0/12 to any port 8686 comment 'Vector API' || true
-    ufw allow from 192.168.0.0/16 to any port 8686 comment 'Vector API' || true
-
-    log "✅ Firewall rules configured for monitoring"
-}
-
 # Export functions for use in parent scripts
 export -f install_monitoring
-export -f configure_monitoring_firewall
 export -f install_node_exporter
 export -f install_vector
