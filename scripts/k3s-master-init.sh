@@ -5,6 +5,7 @@ set -euo pipefail
 
 # Variables (replaced by K3sScriptService)
 INSTANCE_ID="${INSTANCE_ID}"
+SERVER_ID="${SERVER_ID:-}"
 INSTANCE_NAME="${INSTANCE_NAME}"
 CLOUD_PROVIDER="${CLOUD_PROVIDER}"
 CLUSTER_ID="${CLUSTER_ID}"
@@ -191,7 +192,13 @@ fi
 
 export PROMETHEUS_ENDPOINT="localhost:30090"
 export FLUI_API_ENDPOINT="${FLUI_API_ENDPOINT:-http://localhost:3000}"
+# Validate SERVER_ID
+if [[ -z "$SERVER_ID" ]]; then
+    error "SERVER_ID not provided - this should be the database node ID from infrastructure_cluster_nodes table"
+fi
+log "Using database node ID as SERVER_ID: $SERVER_ID"
 export SERVER_TYPE="k3s-master"
+export SERVER_ID
 
 # Export CA public key for SSH certificate authentication (if provided)
 if [[ -n "${FLUI_CA_PUBLIC_KEY:-}" ]]; then
