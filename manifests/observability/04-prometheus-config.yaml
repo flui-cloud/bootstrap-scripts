@@ -75,6 +75,12 @@ data:
           - url: '${FLUI_API_ENDPOINT}/api/v1/observability/prometheus/targets'
             refresh_interval: 30s
         relabel_configs:
+          - source_labels: [__meta_server_id]
+            target_label: server_id
+          - source_labels: [__meta_server_type]
+            target_label: server_type
+          - source_labels: [__meta_region]
+            target_label: region
           - source_labels: [__meta_cluster_id]
             target_label: cluster_id
           - source_labels: [__meta_cluster_name]

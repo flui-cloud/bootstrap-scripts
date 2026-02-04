@@ -1,4 +1,60 @@
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: default
+  labels:
+    app: loki
+data:
+  loki.yaml: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+
+    common:
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
+
+    limits_config:
+      enforce_metric_name: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      ingestion_rate_mb: 16
+      ingestion_burst_size_mb: 32
+      # Allow queries spanning longer time ranges
+      max_query_length: 721h
+
+    # External labels to identify this Loki instance
+    # These labels will be added to all logs stored in this Loki instance
+    distributor:
+      ring:
+        kvstore:
+          store: inmemory
+
+    # Global external labels (similar to Prometheus)
+    # NOTE: Loki doesn't support external_labels directly in config,
+    # but we can add them via relabeling in Vector or as common labels
+    # We'll track the cluster info via labels sent by Vector (server_id, cluster_id, etc.)
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: loki
@@ -17,6 +73,14 @@ kind: Deployment
 metadata:
   name: loki
   namespace: default
+  labels:
+    app: loki
+    cluster: flui-observability
+    component: logging
+  annotations:
+    description: "Loki log aggregation for Flui observability cluster"
+    cluster_id: "${CLUSTER_ID}"
+    server_id: "${SERVER_ID}"
 spec:
   replicas: 1
   selector:
@@ -26,12 +90,24 @@ spec:
     metadata:
       labels:
         app: loki
+        cluster: flui-observability
+        component: logging
+      annotations:
+        cluster_id: "${CLUSTER_ID}"
+        server_id: "${SERVER_ID}"
     spec:
       containers:
         - name: loki
           image: grafana/loki:latest
+          args:
+            - -config.file=/etc/loki/loki.yaml
           ports:
             - containerPort: 3100
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+            - name: storage
+              mountPath: /loki
           resources:
             requests:
               memory: "256Mi"
@@ -39,3 +115,9 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+        - name: storage
+          emptyDir: {}
