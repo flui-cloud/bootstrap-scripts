@@ -15,7 +15,17 @@ readonly VECTOR_VERSION="0.34.1"
 PROMETHEUS_ENDPOINT="${PROMETHEUS_ENDPOINT:-}"
 LOKI_ENDPOINT="${LOKI_ENDPOINT:-}"
 SERVER_TYPE="${SERVER_TYPE:-vps}"
-SERVER_ID="${INSTANCE_ID:-unknown}"
+
+# SERVER_ID is REQUIRED - must be explicitly provided
+# For K3s nodes: database node UUID from infrastructure_cluster_nodes table
+# For VPS servers: unique server identifier
+SERVER_ID="${SERVER_ID:-}"
+if [[ -z "$SERVER_ID" ]]; then
+    echo "ERROR: SERVER_ID is required but was not provided" >&2
+    echo "SERVER_ID must be a unique identifier for this server in the monitoring system" >&2
+    exit 1
+fi
+
 CLOUD_PROVIDER="${CLOUD_PROVIDER:-unknown}"
 CLUSTER_ID="${CLUSTER_ID:-unknown}"
 
