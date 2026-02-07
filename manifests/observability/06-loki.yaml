@@ -11,7 +11,6 @@ data:
 
     server:
       http_listen_port: 3100
-      grpc_listen_port: 9096
 
     common:
       path_prefix: /loki
@@ -42,11 +41,11 @@ data:
     # Compactor is essential for TSDB performance and retention
     compactor:
       working_directory: /loki/compactor
-      shared_store: filesystem
       compaction_interval: 10m
       retention_enabled: true
       retention_delete_delay: 2h
       retention_delete_worker_count: 150
+      delete_request_store: filesystem
 
     limits_config:
       # Loki v3 has structured metadata enabled by default (requires schema v13 + tsdb)
