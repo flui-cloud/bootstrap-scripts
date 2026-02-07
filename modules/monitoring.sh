@@ -3,6 +3,26 @@
 # Coordinates installation of Node Exporter and Vector
 # Provides unified monitoring setup for all Flui server types
 
+# Define logging functions if not already defined (for standalone execution)
+if ! type log &>/dev/null; then
+    log() {
+        echo "[$(date +'%H:%M:%S')] $1"
+    }
+fi
+
+if ! type warn &>/dev/null; then
+    warn() {
+        echo "[$(date +'%H:%M:%S')] WARNING: $1"
+    }
+fi
+
+if ! type error &>/dev/null; then
+    error() {
+        echo "[$(date +'%H:%M:%S')] ERROR: $1"
+        exit 1
+    }
+fi
+
 # Source required modules
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "${SCRIPT_DIR}/node-exporter.sh"
@@ -33,8 +53,9 @@ install_monitoring() {
     # Install Vector for log aggregation
     install_vector "$LOKI_ENDPOINT" "$SERVER_TYPE" "$SERVER_ID" "$CLOUD_PROVIDER" "$CLUSTER_ID"
 
-    # Configure firewall rules for monitoring
-    configure_monitoring_firewall
+    # Note: Firewall rules are managed at cloud provider level (Hetzner/Contabo)
+    # Node Exporter (9100) and Vector (8686) are internal services not exposed publicly
+    # Prometheus scrapes Node Exporter via internal cluster network
 
     # Verify monitoring health after installation
     verify_monitoring_health "$SERVER_TYPE" "$LOKI_ENDPOINT"

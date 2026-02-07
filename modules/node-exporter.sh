@@ -3,6 +3,26 @@
 # Extracted from flui-init.sh for reusability across all server types
 # Version: 1.7.0
 
+# Define logging functions if not already defined (for standalone execution)
+if ! type log &>/dev/null; then
+    log() {
+        echo "[$(date +'%H:%M:%S')] $1"
+    }
+fi
+
+if ! type warn &>/dev/null; then
+    warn() {
+        echo "[$(date +'%H:%M:%S')] WARNING: $1"
+    }
+fi
+
+if ! type error &>/dev/null; then
+    error() {
+        echo "[$(date +'%H:%M:%S')] ERROR: $1"
+        exit 1
+    }
+fi
+
 install_node_exporter() {
     log "Installing Node Exporter v${NODE_EXPORTER_VERSION}..."
 

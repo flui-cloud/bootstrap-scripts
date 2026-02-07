@@ -4,6 +4,26 @@
 # Version: 0.34.1
 # Supports dynamic Loki endpoint configuration with enhanced logging
 
+# Define logging functions if not already defined (for standalone execution)
+if ! type log &>/dev/null; then
+    log() {
+        echo "[$(date +'%H:%M:%S')] $1"
+    }
+fi
+
+if ! type warn &>/dev/null; then
+    warn() {
+        echo "[$(date +'%H:%M:%S')] WARNING: $1"
+    }
+fi
+
+if ! type error &>/dev/null; then
+    error() {
+        echo "[$(date +'%H:%M:%S')] ERROR: $1"
+        exit 1
+    }
+fi
+
 # Test connectivity to Loki endpoint
 test_loki_connectivity() {
     local LOKI_ENDPOINT="$1"
