@@ -35,6 +35,7 @@ install_monitoring() {
     local SERVER_ID="${4:-unknown}"
     local CLOUD_PROVIDER="${5:-unknown}"
     local CLUSTER_ID="${6:-unknown}"
+    local CLUSTER_NAME="${7:-unknown}"
 
     log "=========================================="
     log "Flui Monitoring Installation"
@@ -42,6 +43,7 @@ install_monitoring() {
     log "Server Type: ${SERVER_TYPE}"
     log "Server ID: ${SERVER_ID}"
     log "Cluster ID: ${CLUSTER_ID}"
+    log "Cluster Name: ${CLUSTER_NAME}"
     log "Cloud Provider: ${CLOUD_PROVIDER}"
     log "Prometheus Endpoint: ${PROMETHEUS_ENDPOINT:-not configured}"
     log "Loki Endpoint: ${LOKI_ENDPOINT:-not configured}"
@@ -51,7 +53,7 @@ install_monitoring() {
     install_node_exporter
 
     # Install Vector for log aggregation
-    install_vector "$LOKI_ENDPOINT" "$SERVER_TYPE" "$SERVER_ID" "$CLOUD_PROVIDER" "$CLUSTER_ID"
+    install_vector "$LOKI_ENDPOINT" "$SERVER_TYPE" "$SERVER_ID" "$CLOUD_PROVIDER" "$CLUSTER_ID" "$CLUSTER_NAME"
 
     # Note: Firewall rules are managed at cloud provider level (Hetzner/Contabo)
     # Node Exporter (9100) and Vector (8686) are internal services not exposed publicly

@@ -98,13 +98,14 @@ install_vector() {
     local SERVER_ID="${3:-unknown}"
     local CLOUD_PROVIDER="${4:-unknown}"
     local CLUSTER_ID="${5:-unknown}"
+    local CLUSTER_NAME="${6:-unknown}"
 
     # Create log directory for Vector installation
     mkdir -p /var/log/flui/vector
     local INSTALL_LOG="/var/log/flui/vector/install.log"
 
     log "Installing Vector v0.34.1..."
-    log "Configuration: SERVER_TYPE=${SERVER_TYPE}, SERVER_ID=${SERVER_ID}, CLUSTER_ID=${CLUSTER_ID}, LOKI_ENDPOINT=${LOKI_ENDPOINT}"
+    log "Configuration: SERVER_TYPE=${SERVER_TYPE}, SERVER_ID=${SERVER_ID}, CLUSTER_ID=${CLUSTER_ID}, CLUSTER_NAME=${CLUSTER_NAME}, LOKI_ENDPOINT=${LOKI_ENDPOINT}"
 
     # Log to dedicated file
     {
@@ -113,6 +114,7 @@ install_vector() {
         echo "Server Type: ${SERVER_TYPE}"
         echo "Server ID: ${SERVER_ID}"
         echo "Cluster ID: ${CLUSTER_ID}"
+        echo "Cluster Name: ${CLUSTER_NAME}"
         echo "Cloud Provider: ${CLOUD_PROVIDER}"
         echo "Loki Endpoint: ${LOKI_ENDPOINT:-not configured}"
         echo "=================================="
@@ -206,13 +208,11 @@ source = '''
 .server_type = "SERVER_TYPE_PLACEHOLDER"
 .server_id = "SERVER_ID_PLACEHOLDER"
 .cluster_id = "CLUSTER_ID_PLACEHOLDER"
+.cluster_name = "CLUSTER_NAME_PLACEHOLDER"
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "journald"
 .filename = "journald"
-
-# Extract cluster name from server_id (e.g., "workload-cluster-3" from "workload-cluster-3-master")
-.cluster_name = replace("SERVER_ID_PLACEHOLDER", r'-(master|worker|node-\d+)$', "")
 
 # Extract service name from journald metadata (SYSLOG_IDENTIFIER or _SYSTEMD_UNIT)
 .service = .SYSLOG_IDENTIFIER
@@ -229,13 +229,11 @@ source = '''
 .server_type = "SERVER_TYPE_PLACEHOLDER"
 .server_id = "SERVER_ID_PLACEHOLDER"
 .cluster_id = "CLUSTER_ID_PLACEHOLDER"
+.cluster_name = "CLUSTER_NAME_PLACEHOLDER"
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "syslog"
 .filename = replace(to_string!(.file), r'^.*/', "")
-
-# Extract cluster name from server_id
-.cluster_name = replace("SERVER_ID_PLACEHOLDER", r'-(master|worker|node-\d+)$', "")
 
 # For syslog, service is derived from filename (e.g., "syslog", "kern.log", "auth.log")
 .service = replace(.filename, r'\.log$', "")
@@ -250,13 +248,11 @@ source = '''
 .server_type = "SERVER_TYPE_PLACEHOLDER"
 .server_id = "SERVER_ID_PLACEHOLDER"
 .cluster_id = "CLUSTER_ID_PLACEHOLDER"
+.cluster_name = "CLUSTER_NAME_PLACEHOLDER"
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "init"
 .filename = replace(to_string!(.file), r'^.*/', "")
-
-# Extract cluster name from server_id
-.cluster_name = replace("SERVER_ID_PLACEHOLDER", r'-(master|worker|node-\d+)$', "")
 
 # Service is the init script name (e.g., "flui-init", "k3s-master-init")
 .service = replace(.filename, r'\.log$', "")
@@ -271,13 +267,11 @@ source = '''
 .server_type = "SERVER_TYPE_PLACEHOLDER"
 .server_id = "SERVER_ID_PLACEHOLDER"
 .cluster_id = "CLUSTER_ID_PLACEHOLDER"
+.cluster_name = "CLUSTER_NAME_PLACEHOLDER"
 .cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
 .cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
 .source_type = "application"
 .filename = replace(to_string!(.file), r'^.*/', "")
-
-# Extract cluster name from server_id
-.cluster_name = replace("SERVER_ID_PLACEHOLDER", r'-(master|worker|node-\d+)$', "")
 
 # Service is the application log file name
 .service = replace(.filename, r'\.log$', "")
@@ -323,6 +317,7 @@ EOF
         sed -i "s|SERVER_TYPE_PLACEHOLDER|${SERVER_TYPE}|g" /etc/vector/vector.toml
         sed -i "s|SERVER_ID_PLACEHOLDER|${SERVER_ID}|g" /etc/vector/vector.toml
         sed -i "s|CLUSTER_ID_PLACEHOLDER|${CLUSTER_ID}|g" /etc/vector/vector.toml
+        sed -i "s|CLUSTER_NAME_PLACEHOLDER|${CLUSTER_NAME}|g" /etc/vector/vector.toml
         sed -i "s|CLOUD_PROVIDER_PLACEHOLDER|${CLOUD_PROVIDER}|g" /etc/vector/vector.toml
         sed -i "s|LOKI_ENDPOINT_PLACEHOLDER|${LOKI_ENDPOINT}|g" /etc/vector/vector.toml
 
