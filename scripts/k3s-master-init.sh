@@ -305,7 +305,6 @@ curl -sfL https://get.k3s.io | \
   sh -s - server \
   --token "$K3S_TOKEN" \
   --cluster-init \
-  --disable traefik \
   --disable servicelb \
   --node-name="$INSTANCE_NAME" \
   --flannel-backend=vxlan \
@@ -606,7 +605,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "Deploying components: namespace, postgres, redis, prometheus, loki, grafana"
 
     # Download and apply manifests from GitHub
-    for manifest in 01-namespace 02-postgres 03-redis 04-prometheus-config 05-prometheus 06-loki 07-grafana-datasources 08-grafana; do
+    for manifest in 01-namespace 02-postgres 03-redis 04-prometheus-config 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 10-flui-web 11-ingress; do
         log "→ Downloading ${manifest}.yaml..."
 
         # Download manifest
@@ -711,6 +710,24 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         error "$error_msg"
     fi
 
+    # Wait for Flui API
+    log "→ Waiting for Flui API..."
+    update_health "deploying" "flui-api" ""
+    if kubectl wait --for=condition=ready pod -l app=flui-api --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+        log "✅ Flui API is ready"
+    else
+        warn "Flui API did not become ready within ${COMPONENT_TIMEOUT}s (non-critical, image may not be available yet)"
+    fi
+
+    # Wait for Flui Web
+    log "→ Waiting for Flui Web..."
+    update_health "deploying" "flui-web" ""
+    if kubectl wait --for=condition=ready pod -l app=flui-web --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+        log "✅ Flui Web is ready"
+    else
+        warn "Flui Web did not become ready within ${COMPONENT_TIMEOUT}s (non-critical, image may not be available yet)"
+    fi
+
     log ""
     log "✅ All observability stack components are ready!"
 
@@ -724,6 +741,9 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "PostgreSQL: postgres:5432 (fluicloud/$POSTGRES_PASSWORD)"
     log "Redis:      redis:6379 (password: $REDIS_PASSWORD)"
     log "Loki:       http://$PRIMARY_IP:30100"
+    log "Flui API:   http://$PRIMARY_IP:30080"
+    log "Flui Web:   http://$PRIMARY_IP:30880"
+    log "Ingress:    http://$PRIMARY_IP:80 (Traefik)"
     log ""
 
     # Create marker file for observability stack success
@@ -784,8 +804,10 @@ class HealthHandler(http.server.SimpleHTTPRequestHandler):
             prometheus_healthy = check_service('http://localhost:30090/-/healthy')
             grafana_healthy = check_service('http://localhost:30300/api/health')
             loki_healthy = check_service('http://localhost:30100/ready')
+            flui_api_healthy = check_service('http://localhost:30080/health')
+            flui_web_healthy = check_service('http://localhost:30880/')
 
-            # Determine overall status
+            # Determine overall status (core services only, flui-api/web are optional)
             all_ready = prometheus_healthy and grafana_healthy and loki_healthy
 
             # Build response
@@ -794,7 +816,9 @@ class HealthHandler(http.server.SimpleHTTPRequestHandler):
                 'services': {
                     'prometheus': 'ready' if prometheus_healthy else 'unavailable',
                     'grafana': 'ready' if grafana_healthy else 'unavailable',
-                    'loki': 'ready' if loki_healthy else 'unavailable'
+                    'loki': 'ready' if loki_healthy else 'unavailable',
+                    'flui_api': 'ready' if flui_api_healthy else 'unavailable',
+                    'flui_web': 'ready' if flui_web_healthy else 'unavailable'
                 },
                 'timestamp': datetime.utcnow().isoformat() + 'Z'
             }
