@@ -613,7 +613,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             error "Failed to download ${manifest}.yaml from $MANIFESTS_BASE_URL/observability/"
         fi
 
-        # Substitute environment variables (POSTGRES_PASSWORD, REDIS_PASSWORD, GRAFANA_PASSWORD, MASTER_IP, FLUI_API_ENDPOINT, CLUSTER_ID, SERVER_ID)
+        # Substitute environment variables (POSTGRES_PASSWORD, REDIS_PASSWORD, GRAFANA_PASSWORD, ENCRYPTION_KEY, MASTER_IP, FLUI_API_ENDPOINT, CLUSTER_ID, SERVER_ID)
         # Note: envsubst is part of gettext-base package
         if command -v envsubst &> /dev/null; then
             export CLUSTER_ID SERVER_ID
@@ -623,6 +623,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             sed -e "s/\${POSTGRES_PASSWORD}/$POSTGRES_PASSWORD/g" \
                 -e "s/\${REDIS_PASSWORD}/$REDIS_PASSWORD/g" \
                 -e "s/\${GRAFANA_PASSWORD}/$GRAFANA_PASSWORD/g" \
+                -e "s/\${ENCRYPTION_KEY}/$ENCRYPTION_KEY/g" \
                 -e "s/\${MASTER_IP}/$MASTER_IP/g" \
                 -e "s|\${FLUI_API_ENDPOINT}|$FLUI_API_ENDPOINT|g" \
                 -e "s/\${CLUSTER_ID}/$CLUSTER_ID/g" \
