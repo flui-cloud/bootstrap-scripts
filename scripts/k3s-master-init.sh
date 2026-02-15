@@ -805,7 +805,7 @@ class HealthHandler(http.server.SimpleHTTPRequestHandler):
             prometheus_healthy = check_service('http://localhost:30090/-/healthy')
             grafana_healthy = check_service('http://localhost:30300/api/health')
             loki_healthy = check_service('http://localhost:30100/ready')
-            flui_api_healthy = check_service('http://localhost:30080/health')
+            flui_api_healthy = check_service('http://localhost:30080/api/v1/health/ping')
             flui_web_healthy = check_service('http://localhost:30880/')
 
             # Determine overall status (core services only, flui-api/web are optional)
