@@ -37,7 +37,7 @@ spec:
     spec:
       containers:
         - name: flui-api
-          image: ghcr.io/flui/api:latest
+          image: ghcr.io/flui-cloud/api:latest
           ports:
             - containerPort: 3000
               name: http

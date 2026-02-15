@@ -33,7 +33,7 @@ spec:
     spec:
       containers:
         - name: flui-web
-          image: ghcr.io/flui/web:latest
+          image: ghcr.io/flui-cloud/web:latest
           ports:
             - containerPort: 80
               name: http
