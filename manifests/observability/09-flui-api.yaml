@@ -41,39 +41,11 @@ spec:
           ports:
             - containerPort: 3000
               name: http
-          env:
-            - name: NODE_ENV
-              value: "production"
-            - name: PORT
-              value: "3000"
-            - name: DB_HOST
-              value: "postgres"
-            - name: DB_PORT
-              value: "5432"
-            - name: DB_USERNAME
-              value: "fluicloud"
-            - name: DB_PASSWORD
-              value: "${POSTGRES_PASSWORD}"
-            - name: DB_NAME
-              value: "fluicloud"
-            - name: REDIS_HOST
-              value: "redis"
-            - name: REDIS_PORT
-              value: "6379"
-            - name: REDIS_PASSWORD
-              value: "${REDIS_PASSWORD}"
-            - name: ENCRYPTION_KEY
-              value: "${ENCRYPTION_KEY}"
-            - name: DEPLOYMENT_MODE
-              value: "cluster"
-            - name: API_BASE_URL
-              value: "http://${MASTER_IP}:30080"
-            - name: WEBHOOK_BASE_URL
-              value: "http://${MASTER_IP}:30080"
-            - name: PROMETHEUS_ENDPOINT
-              value: "http://prometheus:9090"
-            - name: LOKI_ENDPOINT
-              value: "http://loki:3100"
+          envFrom:
+            - configMapRef:
+                name: flui-config
+            - secretRef:
+                name: flui-secrets
           livenessProbe:
             httpGet:
               path: /health
