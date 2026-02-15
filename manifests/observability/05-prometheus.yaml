@@ -73,11 +73,11 @@ spec:
               mountPath: /prometheus
           resources:
             requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
               memory: "512Mi"
               cpu: "500m"
-            limits:
-              memory: "1Gi"
-              cpu: "1000m"
           livenessProbe:
             httpGet:
               path: /-/healthy
