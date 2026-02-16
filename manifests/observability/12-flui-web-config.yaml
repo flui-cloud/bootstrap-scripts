@@ -8,5 +8,5 @@ metadata:
 data:
   config.json: |
     {
-      "apiUrl": "http://FLUI_API_URL"
+      "apiUrl": "http://${MASTER_IP}:30080"
     }

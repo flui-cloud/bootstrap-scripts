@@ -605,7 +605,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "Deploying components: namespace, postgres, redis, prometheus, loki, grafana"
 
     # Download and apply manifests from GitHub
-    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 10-flui-web 11-ingress; do
+    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-ingress; do
         log "→ Downloading ${manifest}.yaml..."
 
         # Download manifest
