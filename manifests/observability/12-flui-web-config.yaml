@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flui-web-config
+  namespace: default
+  labels:
+    app: flui-web
+data:
+  config.json: |
+    {
+      "apiUrl": "http://FLUI_API_URL"
+    }

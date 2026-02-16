@@ -53,6 +53,11 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
+          volumeMounts:
+            - name: web-config
+              mountPath: /usr/share/nginx/html/assets/config.json
+              subPath: config.json
+              readOnly: true
           resources:
             requests:
               memory: "32Mi"
@@ -60,3 +65,7 @@ spec:
             limits:
               memory: "128Mi"
               cpu: "200m"
+      volumes:
+        - name: web-config
+          configMap:
+            name: flui-web-config
