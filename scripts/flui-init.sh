@@ -1,7 +1,7 @@
 #!/bin/bash
-# flui-init.sh - Podman + System Monitoring installer for Ubuntu 22/24
-# Version: 1.2.0
-# Now uses modular monitoring components from modules/ directory
+# flui-init.sh - System Monitoring installer for Ubuntu 22/24
+# Version: 1.3.0
+# Uses modular monitoring components from modules/ directory
 
 set -euo pipefail
 
@@ -51,17 +51,17 @@ error() {
 
 detect_system() {
     log "Detecting system..."
-    
+
     if [[ ! -f /etc/os-release ]]; then
         error "/etc/os-release not found"
     fi
-    
+
     source /etc/os-release
-    
+
     if [[ "$ID" != "ubuntu" ]]; then
         error "Unsupported OS: $ID (only Ubuntu supported)"
     fi
-    
+
     case "$VERSION_ID" in
         "22.04"|"24.04")
             log "Ubuntu $VERSION_ID detected"
@@ -70,87 +70,28 @@ detect_system() {
             error "Unsupported Ubuntu version: $VERSION_ID"
             ;;
     esac
-    
+
     if [[ "$(uname -m)" != "x86_64" ]]; then
         error "Unsupported architecture: $(uname -m)"
     fi
-    
+
     log "✅ System validation passed"
 }
 
 update_system() {
     log "Updating system packages..."
-    
+
     export DEBIAN_FRONTEND=noninteractive
-    
+
     if ! apt-get update -qq; then
         error "Failed to update package lists"
     fi
-    
+
     if ! apt-get install -qq -y curl wget ca-certificates gnupg software-properties-common apt-transport-https tar gzip systemd; then
         error "Failed to install essential packages"
     fi
-    
+
     log "✅ System packages updated"
-}
-
-install_podman() {
-    log "Installing Podman..."
-    
-    case "$VERSION_ID" in
-        "22.04")
-            log "Setting up Podman repository for Ubuntu 22.04..."
-            local repo_url="https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/xUbuntu_22.04/"
-            local key_url="https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable/xUbuntu_22.04/Release.key"
-            
-            echo "deb ${repo_url} /" | tee /etc/apt/sources.list.d/kubic-libcontainers.list > /dev/null
-            
-            if ! curl -fsSL "$key_url" | gpg --dearmor -o /usr/share/keyrings/kubic-libcontainers.gpg; then
-                error "Failed to add Podman repository key"
-            fi
-            
-            echo "deb [signed-by=/usr/share/keyrings/kubic-libcontainers.gpg] ${repo_url} /" | tee /etc/apt/sources.list.d/kubic-libcontainers.list > /dev/null
-            ;;
-            
-        "24.04")
-            log "Enabling universe repository for Ubuntu 24.04..."
-            if ! add-apt-repository -y universe; then
-                error "Failed to enable universe repository"
-            fi
-            ;;
-    esac
-    
-    if ! apt-get update -qq; then
-        error "Failed to update package lists"
-    fi
-    
-    if ! apt-get install -qq -y podman crun slirp4netns fuse-overlayfs buildah skopeo; then
-        error "Failed to install Podman packages"
-    fi
-    
-    if ! command -v podman &> /dev/null; then
-        error "Podman installation verification failed"
-    fi
-    
-    local podman_version=$(podman --version)
-    log "✅ Podman installed: $podman_version"
-    
-    mkdir -p /etc/containers
-    cat > /etc/containers/containers.conf << 'EOF'
-[containers]
-default_capabilities = [
-  "CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL",
-  "NET_BIND_SERVICE", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT"
-]
-
-[engine]
-runtime = "crun"
-
-[engine.runtimes]
-crun = ["/usr/bin/crun"]
-EOF
-    
-    log "✅ Podman configuration completed"
 }
 
 # Source monitoring modules
@@ -181,7 +122,7 @@ fi
 
 configure_logging() {
     log "Configuring system logging..."
-    
+
     mkdir -p /etc/systemd/journald.conf.d
     cat > /etc/systemd/journald.conf.d/flui.conf << 'EOF'
 [Journal]
@@ -199,7 +140,7 @@ EOF
 
 setup_flui_user() {
     log "Setting up flui user..."
-    
+
     if ! id "$FLUI_USER" &>/dev/null; then
         if ! useradd -m -s /bin/bash "$FLUI_USER"; then
             error "Failed to create user: $FLUI_USER"
@@ -208,28 +149,28 @@ setup_flui_user() {
     else
         log "User $FLUI_USER already exists"
     fi
-    
+
     local subuid_entry="${FLUI_USER}:100000:65536"
-    
+
     if ! grep -q "^${FLUI_USER}:" /etc/subuid; then
         echo "$subuid_entry" >> /etc/subuid
     fi
-    
+
     if ! grep -q "^${FLUI_USER}:" /etc/subgid; then
         echo "$subuid_entry" >> /etc/subgid
     fi
-    
+
     if ! loginctl enable-linger "$FLUI_USER"; then
         warn "Failed to enable lingering for $FLUI_USER"
     fi
-    
+
     sudo -u "$FLUI_USER" mkdir -p \
         "/home/$FLUI_USER/.config/containers" \
         "/home/$FLUI_USER/.local/share/containers" \
         "/home/$FLUI_USER/.config/systemd/user" \
         "/home/$FLUI_USER/logs" \
         "/home/$FLUI_USER/data"
-    
+
     sudo -u "$FLUI_USER" cat > "/home/$FLUI_USER/.config/containers/storage.conf" << 'EOF'
 [storage]
 driver = "overlay"
@@ -322,29 +263,19 @@ EOF
 
 test_installations() {
     log "Testing installations..."
-    
-    if ! sudo -u "$FLUI_USER" podman --version &>/dev/null; then
-        error "Podman test failed"
-    fi
-    
-    if ! timeout 30 sudo -u "$FLUI_USER" podman run --rm alpine:latest echo "Test" &>/dev/null; then
-        warn "Container test failed"
-    else
-        log "✅ Container test passed"
-    fi
-    
+
     if curl -f -s http://localhost:9100/metrics >/dev/null 2>&1; then
         log "✅ Node Exporter responding"
     else
         warn "Node Exporter not responding"
     fi
-    
+
     if curl -s http://localhost:8686/health &>/dev/null; then
         log "✅ Vector API responding"
     else
         warn "Vector API not responding"
     fi
-    
+
     log "✅ Installation testing completed"
 }
 
@@ -375,7 +306,6 @@ main() {
     install_ca_public_key
 
     update_system
-    install_podman
     # Use modular monitoring installation (Node Exporter + Vector)
     # Note: Monitoring modules are optional and loaded conditionally above
     if type install_monitoring &>/dev/null; then
