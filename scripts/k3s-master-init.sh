@@ -616,7 +616,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         # Substitute environment variables (POSTGRES_PASSWORD, REDIS_PASSWORD, GRAFANA_PASSWORD, ENCRYPTION_KEY, MASTER_IP, FLUI_API_ENDPOINT, CLUSTER_ID, SERVER_ID)
         # Note: envsubst is part of gettext-base package
         if command -v envsubst &> /dev/null; then
-            export CLUSTER_ID SERVER_ID
+            export CLUSTER_ID SERVER_ID CLUSTER_NAME CLOUD_PROVIDER
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         else
             log "⚠️  envsubst not found, using sed for variable substitution..."
@@ -628,6 +628,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s|\${FLUI_API_ENDPOINT}|$FLUI_API_ENDPOINT|g" \
                 -e "s/\${CLUSTER_ID}/$CLUSTER_ID/g" \
                 -e "s/\${SERVER_ID}/$SERVER_ID/g" \
+                -e "s/\${CLUSTER_NAME}/$CLUSTER_NAME/g" \
+                -e "s/\${CLOUD_PROVIDER}/$CLOUD_PROVIDER/g" \
                 "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         fi
 

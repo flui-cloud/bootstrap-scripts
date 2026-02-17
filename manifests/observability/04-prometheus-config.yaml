@@ -28,6 +28,10 @@ data:
               node: 'master'
               node_type: 'k3s-master'
               cluster_type: 'observability'
+              cluster_id: '${CLUSTER_ID}'
+              cluster_name: '${CLUSTER_NAME}'
+              server_id: '${SERVER_ID}'
+              cloud_provider: '${CLOUD_PROVIDER}'
 
       # Kubernetes API server
       - job_name: 'kubernetes-apiservers'
