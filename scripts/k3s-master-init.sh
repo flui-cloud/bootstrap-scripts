@@ -580,9 +580,48 @@ log "✅ Kubeconfig: /etc/rancher/k3s/k3s.yaml"
 log "✅ kubectl installed and configured"
 log ""
 
-# Count running K3s system pods
 # ============================================================
-# STEP 11: Deploy Observability Stack (Conditional)
+# STEP 11: Install cert-manager
+# ============================================================
+log ""
+log "=========================================="
+log "Installing cert-manager"
+log "=========================================="
+
+CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.17.1}"
+log "cert-manager version: $CERT_MANAGER_VERSION"
+
+log "→ Applying cert-manager manifests..."
+if ! kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"; then
+    warn "Failed to apply cert-manager manifests - TLS certificate management will not be available"
+else
+    log "→ Waiting for cert-manager deployments to be available..."
+
+    CERT_MANAGER_TIMEOUT=120
+
+    if kubectl wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=${CERT_MANAGER_TIMEOUT}s 2>/dev/null; then
+        log "✅ cert-manager controller is ready"
+    else
+        warn "cert-manager controller did not become ready within ${CERT_MANAGER_TIMEOUT}s"
+    fi
+
+    if kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=${CERT_MANAGER_TIMEOUT}s 2>/dev/null; then
+        log "✅ cert-manager webhook is ready"
+    else
+        warn "cert-manager webhook did not become ready within ${CERT_MANAGER_TIMEOUT}s"
+    fi
+
+    if kubectl wait --for=condition=Available deployment/cert-manager-cainjector -n cert-manager --timeout=${CERT_MANAGER_TIMEOUT}s 2>/dev/null; then
+        log "✅ cert-manager CA injector is ready"
+    else
+        warn "cert-manager CA injector did not become ready within ${CERT_MANAGER_TIMEOUT}s"
+    fi
+
+    log "✅ cert-manager installation completed"
+fi
+
+# ============================================================
+# STEP 12: Deploy Observability Stack (Conditional)
 # ============================================================
 if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log ""
@@ -773,7 +812,7 @@ fi
 touch /var/log/k3s-master-ready
 log "✅ Marker file created: /var/log/k3s-master-ready"
 
-# STEP 12: Start Health Endpoint HTTP Server
+# STEP 13: Start Health Endpoint HTTP Server
 # ============================================================
 log ""
 log "Starting health endpoint HTTP server on port 8080..."
