@@ -5,6 +5,9 @@ metadata:
   namespace: default
   labels:
     app: flui-api
+    app.kubernetes.io/name: flui-api
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: flui-api
 spec:
   type: NodePort
   ports:
@@ -21,6 +24,9 @@ metadata:
   namespace: default
   labels:
     app: flui-api
+    app.kubernetes.io/name: flui-api
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: flui-api
 spec:
   replicas: 1
   selector:

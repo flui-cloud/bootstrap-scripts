@@ -5,6 +5,9 @@ metadata:
   namespace: default
   labels:
     app: flui-api
+    app.kubernetes.io/name: flui-api
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: flui-api
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
@@ -27,6 +30,9 @@ metadata:
   namespace: default
   labels:
     app: flui-web
+    app.kubernetes.io/name: flui-web
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: flui-web
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:

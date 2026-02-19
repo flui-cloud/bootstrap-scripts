@@ -5,6 +5,9 @@ metadata:
   namespace: default
   labels:
     app: prometheus
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: prometheus
 data:
   prometheus.yml: |
     global:

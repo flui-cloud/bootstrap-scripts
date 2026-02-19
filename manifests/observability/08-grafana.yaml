@@ -3,6 +3,11 @@ kind: Service
 metadata:
   name: grafana
   namespace: default
+  labels:
+    app: grafana
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: grafana
 spec:
   type: NodePort
   ports:
@@ -17,6 +22,11 @@ kind: Deployment
 metadata:
   name: grafana
   namespace: default
+  labels:
+    app: grafana
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: grafana
 spec:
   replicas: 1
   selector:

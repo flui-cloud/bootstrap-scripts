@@ -5,6 +5,9 @@ metadata:
   namespace: default
   labels:
     app: loki
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: loki
 data:
   loki.yaml: |
     auth_enabled: false
@@ -75,6 +78,11 @@ kind: Service
 metadata:
   name: loki
   namespace: default
+  labels:
+    app: loki
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: loki
 spec:
   type: NodePort
   ports:
@@ -91,6 +99,9 @@ metadata:
   namespace: default
   labels:
     app: loki
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: loki
     cluster: flui-observability
     component: logging
   annotations:

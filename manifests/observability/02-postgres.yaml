@@ -5,6 +5,9 @@ metadata:
   namespace: default
   labels:
     app: postgres
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: postgres
 spec:
   type: NodePort
   ports:
@@ -19,6 +22,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: postgres-data
   namespace: default
+  labels:
+    app: postgres
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: postgres
 spec:
   accessModes:
     - ReadWriteOnce
@@ -32,6 +40,11 @@ kind: StatefulSet
 metadata:
   name: postgres
   namespace: default
+  labels:
+    app: postgres
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: postgres
 spec:
   serviceName: postgres
   replicas: 1

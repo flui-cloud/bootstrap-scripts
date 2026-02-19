@@ -3,6 +3,11 @@ kind: Service
 metadata:
   name: redis
   namespace: default
+  labels:
+    app: redis
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: redis
 spec:
   type: NodePort
   ports:
@@ -17,6 +22,11 @@ kind: Deployment
 metadata:
   name: redis
   namespace: default
+  labels:
+    app: redis
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: redis
 spec:
   replicas: 1
   selector:

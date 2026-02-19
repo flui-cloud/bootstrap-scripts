@@ -5,6 +5,9 @@ metadata:
   namespace: default
   labels:
     app: grafana
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: grafana
 data:
   datasources.yml: |
     apiVersion: 1
