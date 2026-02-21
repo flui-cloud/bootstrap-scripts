@@ -313,7 +313,7 @@ data:
           - record: flui:app_pods_by_phase
             expr: |
               sum by (namespace, label_app_kubernetes_io_name, phase) (
-                kube_pod_status_phase{phase=~"Running|Pending|Failed|Succeeded|Unknown"} == 1
+                (kube_pod_status_phase{phase=~"Running|Pending|Failed|Succeeded|Unknown"} > 0)
                 * on (namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
