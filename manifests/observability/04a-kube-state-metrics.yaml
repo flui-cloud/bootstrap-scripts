@@ -50,6 +50,10 @@ rules:
     resources:
       - horizontalpodautoscalers
     verbs: ["list", "watch"]
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["list", "watch"]
   - apiGroups: ["networking.k8s.io"]
     resources:
       - networkpolicies
@@ -140,6 +144,8 @@ spec:
       containers:
         - name: kube-state-metrics
           image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.10.1
+          args:
+            - '--metric-labels-allowlist=pods=[app,app.kubernetes.io/name,app.kubernetes.io/managed-by,app.kubernetes.io/instance,flui-app-id],deployments=[app,app.kubernetes.io/name,app.kubernetes.io/managed-by,app.kubernetes.io/instance,flui-app-id]'
           ports:
             - name: http-metrics
               containerPort: 8080
