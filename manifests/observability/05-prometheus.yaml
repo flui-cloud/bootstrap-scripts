@@ -12,6 +12,11 @@ rules:
   - apiGroups: [""]
     resources: ["nodes", "pods", "services", "endpoints"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes/metrics", "nodes/proxy"]
+    verbs: ["get"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -74,6 +79,7 @@ spec:
             - '--storage.tsdb.path=/prometheus'
             - '--storage.tsdb.retention.time=15d'
             - '--web.enable-lifecycle'
+            - '--web.enable-remote-write-receiver'
           ports:
             - containerPort: 9090
           volumeMounts:

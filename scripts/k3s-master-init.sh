@@ -644,7 +644,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "Deploying components: namespace, postgres, redis, prometheus, loki, grafana"
 
     # Download and apply manifests from GitHub
-    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-ingress; do
+    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-ingress; do
         log "→ Downloading ${manifest}.yaml..."
 
         # Download manifest
@@ -726,6 +726,15 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         log "❌ $error_msg"
         update_health "failed" "prometheus" "$error_msg"
         error "$error_msg"
+    fi
+
+    # Wait for kube-state-metrics
+    log "→ Waiting for kube-state-metrics..."
+    update_health "deploying" "kube-state-metrics" ""
+    if kubectl wait --for=condition=ready pod -l app=kube-state-metrics --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+        log "✅ kube-state-metrics is ready"
+    else
+        warn "kube-state-metrics did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"
     fi
 
     # Wait for Loki
