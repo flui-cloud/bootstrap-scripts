@@ -55,6 +55,9 @@ spec:
     metadata:
       labels:
         app: postgres
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/managed-by: flui-cloud
+        app.kubernetes.io/instance: postgres
     spec:
       containers:
         - name: postgres

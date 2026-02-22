@@ -36,6 +36,9 @@ spec:
     metadata:
       labels:
         app: flui-web
+        app.kubernetes.io/name: flui-web
+        app.kubernetes.io/managed-by: flui-cloud
+        app.kubernetes.io/instance: flui-web
     spec:
       containers:
         - name: flui-web

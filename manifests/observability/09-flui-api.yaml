@@ -36,6 +36,9 @@ spec:
     metadata:
       labels:
         app: flui-api
+        app.kubernetes.io/name: flui-api
+        app.kubernetes.io/managed-by: flui-cloud
+        app.kubernetes.io/instance: flui-api
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
