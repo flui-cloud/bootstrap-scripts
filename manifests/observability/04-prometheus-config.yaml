@@ -138,9 +138,9 @@ data:
                   container!="POD",
                   container!=""
                 }[5m])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
-              * on (namespace, pod) group_left(label_app_kubernetes_io_name)
-              kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
 
           # CPU requests per app
           - record: flui:app_cpu_requests_cores
@@ -180,9 +180,9 @@ data:
                   container!="POD",
                   container!=""
                 }
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
-              * on (namespace, pod) group_left(label_app_kubernetes_io_name)
-              kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
 
           # Memory requests per app
           - record: flui:app_memory_requests_bytes
