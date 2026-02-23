@@ -308,7 +308,7 @@ app_parts = split(matches.pod, "-")
 .app = app_parts[0]
 
 # If pod has a second segment without numbers, include it (e.g., "flui-api" vs just "api")
-if length(app_parts) > 1 && !contains(string!(app_parts[1]), r'\d') {
+if length(app_parts) > 1 && !match(string!(app_parts[1]), r'\d') {
   .app = join!([app_parts[0], app_parts[1]], "-")
 }
 
