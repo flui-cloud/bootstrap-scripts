@@ -524,12 +524,13 @@ if parse_err == null {
 .service = .app
 '''
 
-# Sink: Loki
-[sinks.loki]
+# Sink: Loki for Kubernetes pod logs ONLY (with full indexed labels)
+[sinks.loki_k8s]
 type = "loki"
-inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_logs", "enrich_k8s_pods"]
+inputs = ["enrich_k8s_pods"]
 endpoint = "http://LOKI_ENDPOINT_PLACEHOLDER"
 encoding.codec = "json"
+# Common cluster labels
 labels.cluster_id = "{{ cluster_id }}"
 labels.cluster_name = "{{ cluster_name }}"
 labels.server_id = "{{ server_id }}"
@@ -539,20 +540,36 @@ labels.server_type = "{{ server_type }}"
 labels.cluster_type = "{{ cluster_type }}"
 labels.cloud_provider = "{{ cloud_provider }}"
 labels.source_type = "{{ source_type }}"
-labels.filename = "{{ filename }}"
-# Kubernetes-specific labels (only present for source_type=kubernetes)
+# Kubernetes-specific labels (indexed for fast queries)
 labels.namespace = "{{ namespace }}"
 labels.pod = "{{ pod }}"
 labels.app = "{{ app }}"
 labels.container = "{{ container }}"
 labels.node = "{{ node }}"
-labels.level = "{{ level }}"
 labels.stream = "{{ stream }}"
-# Optional structured logging labels (only present if app emits them)
-labels.trace_id = "{{ trace_id }}"
-labels.user_id = "{{ user_id }}"
+# Log level (parsed from app JSON logs)
+labels.level = "{{ level }}"
 
-# Sink: File backup
+# Sink: Loki for host logs (system logs with indexed level)
+[sinks.loki_host]
+type = "loki"
+inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_logs"]
+endpoint = "http://LOKI_ENDPOINT_PLACEHOLDER"
+encoding.codec = "json"
+# Common labels for host logs
+labels.cluster_id = "{{ cluster_id }}"
+labels.cluster_name = "{{ cluster_name }}"
+labels.server_id = "{{ server_id }}"
+labels.hostname = "{{ hostname }}"
+labels.service = "{{ service }}"
+labels.server_type = "{{ server_type }}"
+labels.cluster_type = "{{ cluster_type }}"
+labels.cloud_provider = "{{ cloud_provider }}"
+labels.source_type = "{{ source_type }}"
+# Log level (from journald priority or syslog severity)
+labels.level = "{{ level }}"
+
+# Sink: File backup for all logs
 [sinks.file_backup]
 type = "file"
 inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_logs", "enrich_k8s_pods"]
