@@ -213,6 +213,92 @@ logger.info({ userId: 123, traceId: 'abc123' }, 'User logged in');
 
 ---
 
+#### NestJS
+
+**NestJS v11+** (Native JSON Support - Recommended)
+
+Starting from version 11, NestJS supports native JSON logging without additional dependencies:
+
+```typescript
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule, {
+    logger: {
+      logLevels: ['log', 'error', 'warn', 'debug', 'verbose'],
+      json: true, // Enable JSON output
+    },
+  });
+  await app.listen(3000);
+}
+bootstrap();
+```
+
+**Output example**:
+```json
+{
+  "level": "info",
+  "timestamp": "2026-02-23T05:50:32.047Z",
+  "message": "User logged in",
+  "context": "UserService",
+  "userId": 123,
+  "traceId": "abc123"
+}
+```
+
+**NestJS Pre-v11** (Use Pino)
+
+For versions before v11, use [nestjs-pino](https://github.com/iamolegga/nestjs-pino):
+
+```bash
+npm install nestjs-pino pino-http
+```
+
+```typescript
+import { Module } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
+
+@Module({
+  imports: [
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env.NODE_ENV !== 'production' ? 'debug' : 'info',
+        transport: process.env.NODE_ENV !== 'production'
+          ? { target: 'pino-pretty' }
+          : undefined,
+        serializers: {
+          req: (req) => ({
+            method: req.method,
+            url: req.url,
+          }),
+        },
+      },
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+**Usage in services**:
+```typescript
+import { Injectable, Logger } from '@nestjs/common';
+import { PinoLogger } from 'nestjs-pino';
+
+@Injectable()
+export class UserService {
+  constructor(private readonly logger: PinoLogger) {
+    this.logger.setContext(UserService.name);
+  }
+
+  login(userId: number) {
+    this.logger.info({ userId, traceId: 'abc123' }, 'User logged in');
+  }
+}
+```
+
+---
+
 ### .NET
 
 **Recommended Library**: [Serilog](https://serilog.net/) with JSON formatter
