@@ -314,83 +314,165 @@ if length(app_parts) > 1 && !match(string!(app_parts[1]), r'\d') {
 
 # Parse Kubernetes log format: <timestamp> <stream> <flags> <message>
 # Example: "2026-02-23T05:50:32.04784505Z stderr F Message: Unsuccessful HTTP Request"
-k8s_log = parse_regex(.message, r'^(?P<k8s_timestamp>[^\s]+)\s+(?P<stream>stdout|stderr)\s+(?P<flags>[^\s]+)\s+(?P<log>.*)$') ?? {}
+k8s_log, k8s_log_err = parse_regex(.message, r'^(?P<k8s_timestamp>[^\s]+)\s+(?P<stream>stdout|stderr)\s+(?P<flags>[^\s]+)\s+(?P<log>.*)$')
+if k8s_log_err != null {
+  k8s_log = {}
+}
 
 # Extract stream (stdout/stderr) and actual log message
-.stream = k8s_log.stream ?? "unknown"
-.message = k8s_log.log ?? .message
+if exists(k8s_log.stream) {
+  .stream = k8s_log.stream
+} else {
+  .stream = "unknown"
+}
+
+if exists(k8s_log.log) {
+  .message = k8s_log.log
+}
 
 # ============================================================
 # Multi-Pattern Log Parsing (supports JSON + common text formats)
 # ============================================================
 
 # Try to parse structured JSON logs first (best case)
-parsed_json = parse_json(.message) ?? null
-if parsed_json != null {
+parsed_json, parse_err = parse_json(.message)
+if parse_err == null {
   # JSON log detected - extract standard fields
   # Supports: Pino, Winston, Bunyan, Serilog (JSON mode), Logback (JSON), Monolog (JSON)
-  .level = downcase(string!(parsed_json.level ?? parsed_json.severity ?? parsed_json.lvl ?? "info"))
-  .log_message = string!(parsed_json.message ?? parsed_json.msg ?? parsed_json.text ?? .message)
-  .log_timestamp = parsed_json.timestamp ?? parsed_json.time ?? parsed_json.ts ?? parsed_json["@timestamp"] ?? null
+
+  # Extract level field
+  if exists(parsed_json.level) {
+    .level = downcase(string!(parsed_json.level))
+  } else if exists(parsed_json.severity) {
+    .level = downcase(string!(parsed_json.severity))
+  } else if exists(parsed_json.lvl) {
+    .level = downcase(string!(parsed_json.lvl))
+  } else {
+    .level = "info"
+  }
+
+  # Extract message field
+  if exists(parsed_json.message) {
+    .log_message = string!(parsed_json.message)
+  } else if exists(parsed_json.msg) {
+    .log_message = string!(parsed_json.msg)
+  } else if exists(parsed_json.text) {
+    .log_message = string!(parsed_json.text)
+  } else {
+    .log_message = .message
+  }
+
+  # Extract timestamp (try multiple field names)
+  if exists(parsed_json.timestamp) {
+    .log_timestamp = parsed_json.timestamp
+  } else if exists(parsed_json.time) {
+    .log_timestamp = parsed_json.time
+  } else if exists(parsed_json.ts) {
+    .log_timestamp = parsed_json.ts
+  } else {
+    .log_timestamp = null
+  }
 
   # Extract additional structured fields if present
-  .trace_id = parsed_json.trace_id ?? parsed_json.traceId ?? null
-  .span_id = parsed_json.span_id ?? parsed_json.spanId ?? null
-  .user_id = parsed_json.user_id ?? parsed_json.userId ?? null
-  .request_id = parsed_json.request_id ?? parsed_json.requestId ?? null
-  .error_type = parsed_json.error_type ?? parsed_json.exception ?? null
+  if exists(parsed_json.trace_id) {
+    .trace_id = parsed_json.trace_id
+  } else if exists(parsed_json.traceId) {
+    .trace_id = parsed_json.traceId
+  } else {
+    .trace_id = null
+  }
+
+  if exists(parsed_json.span_id) {
+    .span_id = parsed_json.span_id
+  } else if exists(parsed_json.spanId) {
+    .span_id = parsed_json.spanId
+  } else {
+    .span_id = null
+  }
+
+  if exists(parsed_json.user_id) {
+    .user_id = parsed_json.user_id
+  } else if exists(parsed_json.userId) {
+    .user_id = parsed_json.userId
+  } else {
+    .user_id = null
+  }
+
+  if exists(parsed_json.request_id) {
+    .request_id = parsed_json.request_id
+  } else if exists(parsed_json.requestId) {
+    .request_id = parsed_json.requestId
+  } else {
+    .request_id = null
+  }
+
+  if exists(parsed_json.error_type) {
+    .error_type = parsed_json.error_type
+  } else if exists(parsed_json.exception) {
+    .error_type = parsed_json.exception
+  } else {
+    .error_type = null
+  }
 
 } else {
   # Plain text log - try multiple common patterns
 
   # Pattern 1: .NET/Serilog format
   # Example: [2026-02-23 05:50:32.047 ERR] User authentication failed
-  dotnet_match = parse_regex(.message, r'^\[[\d\-:\s.]+ (?P<level>DBG|TRC|INF|WRN|ERR|FTL)\]\s+(?P<msg>.*)$') ?? null
+  dotnet_match, dotnet_err = parse_regex(.message, r'^\[[\d\-:\s.]+ (?P<level>DBG|TRC|INF|WRN|ERR|FTL)\]\s+(?P<msg>.*)$')
 
-  if dotnet_match != null {
-    .level = if dotnet_match.level == "DBG" { "debug" }
-             else if dotnet_match.level == "TRC" { "trace" }
-             else if dotnet_match.level == "INF" { "info" }
-             else if dotnet_match.level == "WRN" { "warn" }
-             else if dotnet_match.level == "ERR" { "error" }
-             else if dotnet_match.level == "FTL" { "fatal" }
-             else { "info" }
+  if dotnet_err == null {
+    if dotnet_match.level == "DBG" {
+      .level = "debug"
+    } else if dotnet_match.level == "TRC" {
+      .level = "trace"
+    } else if dotnet_match.level == "INF" {
+      .level = "info"
+    } else if dotnet_match.level == "WRN" {
+      .level = "warn"
+    } else if dotnet_match.level == "ERR" {
+      .level = "error"
+    } else if dotnet_match.level == "FTL" {
+      .level = "fatal"
+    } else {
+      .level = "info"
+    }
     .log_message = dotnet_match.msg
   } else {
 
     # Pattern 2: Java/Logback format
     # Example: 2026-02-23 05:50:32.047 ERROR [com.flui.api.UserService] - Connection timeout
-    java_match = parse_regex(.message, r'^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[.,]\d{3}\s+(?P<level>TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+\[.*?\]\s+-?\s*(?P<msg>.*)$') ?? null
+    java_match, java_err = parse_regex(.message, r'^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[.,]\d{3}\s+(?P<level>TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+\[.*?\]\s+-?\s*(?P<msg>.*)$')
 
-    if java_match != null {
-      .level = downcase(java_match.level)
+    if java_err == null {
+      .level = downcase!(java_match.level)
       .log_message = java_match.msg
     } else {
 
       # Pattern 3: Winston/Node.js text format
       # Example: error: User authentication failed {"userId":123}
-      winston_match = parse_regex(.message, r'^(?P<level>error|warn|info|debug|trace):\s+(?P<msg>.*)$') ?? null
+      winston_match, winston_err = parse_regex(.message, r'^(?P<level>error|warn|info|debug|trace):\s+(?P<msg>.*)$')
 
-      if winston_match != null {
+      if winston_err == null {
         .level = winston_match.level
         .log_message = winston_match.msg
       } else {
 
         # Pattern 4: PHP/Laravel format
         # Example: [2026-02-23 05:50:32] production.ERROR: Database connection failed
-        laravel_match = parse_regex(.message, r'^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\]\s+\w+\.(?P<level>DEBUG|INFO|WARNING|ERROR|CRITICAL|ALERT|EMERGENCY):\s+(?P<msg>.*)$') ?? null
+        laravel_match, laravel_err = parse_regex(.message, r'^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\]\s+\w+\.(?P<level>DEBUG|INFO|WARNING|ERROR|CRITICAL|ALERT|EMERGENCY):\s+(?P<msg>.*)$')
 
-        if laravel_match != null {
-          .level = downcase(laravel_match.level)
+        if laravel_err == null {
+          .level = downcase!(laravel_match.level)
           .log_message = laravel_match.msg
         } else {
 
           # Pattern 5: Docker/Go common format
           # Example: time="2026-02-23T05:50:32Z" level=error msg="Connection failed"
-          docker_match = parse_regex(.message, r'time="[^"]+" level=(?P<level>\w+) msg="(?P<msg>[^"]+)"') ?? null
+          docker_match, docker_err = parse_regex(.message, r'time="[^"]+" level=(?P<level>\w+) msg="(?P<msg>[^"]+)"')
 
-          if docker_match != null {
-            .level = downcase(docker_match.level)
+          if docker_err == null {
+            .level = downcase!(docker_match.level)
             .log_message = docker_match.msg
           } else {
 
@@ -398,10 +480,10 @@ if parsed_json != null {
             # Example: [ERROR] Something went wrong
             # Example: ERROR: Connection timeout
             # Example: 2026-02-23 05:50:32 WARN Connection slow
-            generic_match = parse_regex(.message, r'(?i)\b(?P<level>TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|CRITICAL)\b') ?? null
+            generic_match, generic_err = parse_regex(.message, r'(?i)\b(?P<level>TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|CRITICAL)\b')
 
-            if generic_match != null {
-              .level = downcase(generic_match.level)
+            if generic_err == null {
+              .level = downcase!(generic_match.level)
               # Normalize "warning" to "warn"
               if .level == "warning" {
                 .level = "warn"
