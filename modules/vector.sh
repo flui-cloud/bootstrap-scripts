@@ -312,6 +312,121 @@ if length(app_parts) > 1 && !match(string!(app_parts[1]), r'\d') {
   .app = join!([app_parts[0], app_parts[1]], "-")
 }
 
+# Parse Kubernetes log format: <timestamp> <stream> <flags> <message>
+# Example: "2026-02-23T05:50:32.04784505Z stderr F Message: Unsuccessful HTTP Request"
+k8s_log = parse_regex(.message, r'^(?P<k8s_timestamp>[^\s]+)\s+(?P<stream>stdout|stderr)\s+(?P<flags>[^\s]+)\s+(?P<log>.*)$') ?? {}
+
+# Extract stream (stdout/stderr) and actual log message
+.stream = k8s_log.stream ?? "unknown"
+.message = k8s_log.log ?? .message
+
+# ============================================================
+# Multi-Pattern Log Parsing (supports JSON + common text formats)
+# ============================================================
+
+# Try to parse structured JSON logs first (best case)
+parsed_json = parse_json(.message) ?? null
+if parsed_json != null {
+  # JSON log detected - extract standard fields
+  # Supports: Pino, Winston, Bunyan, Serilog (JSON mode), Logback (JSON), Monolog (JSON)
+  .level = downcase(string!(parsed_json.level ?? parsed_json.severity ?? parsed_json.lvl ?? "info"))
+  .log_message = string!(parsed_json.message ?? parsed_json.msg ?? parsed_json.text ?? .message)
+  .log_timestamp = parsed_json.timestamp ?? parsed_json.time ?? parsed_json.ts ?? parsed_json["@timestamp"] ?? null
+
+  # Extract additional structured fields if present
+  .trace_id = parsed_json.trace_id ?? parsed_json.traceId ?? null
+  .span_id = parsed_json.span_id ?? parsed_json.spanId ?? null
+  .user_id = parsed_json.user_id ?? parsed_json.userId ?? null
+  .request_id = parsed_json.request_id ?? parsed_json.requestId ?? null
+  .error_type = parsed_json.error_type ?? parsed_json.exception ?? null
+
+} else {
+  # Plain text log - try multiple common patterns
+
+  # Pattern 1: .NET/Serilog format
+  # Example: [2026-02-23 05:50:32.047 ERR] User authentication failed
+  dotnet_match = parse_regex(.message, r'^\[[\d\-:\s.]+ (?P<level>DBG|TRC|INF|WRN|ERR|FTL)\]\s+(?P<msg>.*)$') ?? null
+
+  if dotnet_match != null {
+    .level = if dotnet_match.level == "DBG" { "debug" }
+             else if dotnet_match.level == "TRC" { "trace" }
+             else if dotnet_match.level == "INF" { "info" }
+             else if dotnet_match.level == "WRN" { "warn" }
+             else if dotnet_match.level == "ERR" { "error" }
+             else if dotnet_match.level == "FTL" { "fatal" }
+             else { "info" }
+    .log_message = dotnet_match.msg
+  } else {
+
+    # Pattern 2: Java/Logback format
+    # Example: 2026-02-23 05:50:32.047 ERROR [com.flui.api.UserService] - Connection timeout
+    java_match = parse_regex(.message, r'^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[.,]\d{3}\s+(?P<level>TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+\[.*?\]\s+-?\s*(?P<msg>.*)$') ?? null
+
+    if java_match != null {
+      .level = downcase(java_match.level)
+      .log_message = java_match.msg
+    } else {
+
+      # Pattern 3: Winston/Node.js text format
+      # Example: error: User authentication failed {"userId":123}
+      winston_match = parse_regex(.message, r'^(?P<level>error|warn|info|debug|trace):\s+(?P<msg>.*)$') ?? null
+
+      if winston_match != null {
+        .level = winston_match.level
+        .log_message = winston_match.msg
+      } else {
+
+        # Pattern 4: PHP/Laravel format
+        # Example: [2026-02-23 05:50:32] production.ERROR: Database connection failed
+        laravel_match = parse_regex(.message, r'^\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\]\s+\w+\.(?P<level>DEBUG|INFO|WARNING|ERROR|CRITICAL|ALERT|EMERGENCY):\s+(?P<msg>.*)$') ?? null
+
+        if laravel_match != null {
+          .level = downcase(laravel_match.level)
+          .log_message = laravel_match.msg
+        } else {
+
+          # Pattern 5: Docker/Go common format
+          # Example: time="2026-02-23T05:50:32Z" level=error msg="Connection failed"
+          docker_match = parse_regex(.message, r'time="[^"]+" level=(?P<level>\w+) msg="(?P<msg>[^"]+)"') ?? null
+
+          if docker_match != null {
+            .level = downcase(docker_match.level)
+            .log_message = docker_match.msg
+          } else {
+
+            # Pattern 6: Generic pattern with level keyword
+            # Example: [ERROR] Something went wrong
+            # Example: ERROR: Connection timeout
+            # Example: 2026-02-23 05:50:32 WARN Connection slow
+            generic_match = parse_regex(.message, r'(?i)\b(?P<level>TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|CRITICAL)\b') ?? null
+
+            if generic_match != null {
+              .level = downcase(generic_match.level)
+              # Normalize "warning" to "warn"
+              if .level == "warning" {
+                .level = "warn"
+              }
+              .log_message = .message
+            } else {
+              # No pattern matched - default to info
+              .level = "info"
+              .log_message = .message
+            }
+          }
+        }
+      }
+    }
+  }
+
+  # For text logs, these fields are null
+  .log_timestamp = null
+  .trace_id = null
+  .span_id = null
+  .user_id = null
+  .request_id = null
+  .error_type = null
+}
+
 # Add custom flui labels
 .hostname = get_hostname!()
 .server_type = "SERVER_TYPE_PLACEHOLDER"
@@ -349,6 +464,11 @@ labels.pod = "{{ pod }}"
 labels.app = "{{ app }}"
 labels.container = "{{ container }}"
 labels.node = "{{ node }}"
+labels.level = "{{ level }}"
+labels.stream = "{{ stream }}"
+# Optional structured logging labels (only present if app emits them)
+labels.trace_id = "{{ trace_id }}"
+labels.user_id = "{{ user_id }}"
 
 # Sink: File backup
 [sinks.file_backup]
