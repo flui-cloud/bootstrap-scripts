@@ -199,6 +199,16 @@ type = "file"
 include = ["/home/flui/logs/*.log", "/var/log/flui/*.log"]
 read_from = "end"
 
+# Source: Kubernetes pod logs (exclude system namespaces)
+[sources.k8s_pods]
+type = "file"
+include = ["/var/log/pods/**/*.log"]
+exclude = [
+  "/var/log/pods/kube-system_*/**/*.log",
+  "/var/log/pods/cert-manager_*/**/*.log"
+]
+read_from = "end"
+
 # Transform: enrich journald logs
 [transforms.enrich_journald]
 type = "remap"
@@ -277,10 +287,50 @@ source = '''
 .service = replace(.filename, r'\.log$', "")
 '''
 
+# Transform: enrich Kubernetes pod logs
+[transforms.enrich_k8s_pods]
+type = "remap"
+inputs = ["k8s_pods"]
+source = '''
+# Parse pod log path to extract namespace, pod, container
+# Path format: /var/log/pods/<namespace>_<pod>_<uid>/<container>/<restart>.log
+matches = parse_regex!(.file, r'/var/log/pods/(?P<namespace>[^_]+)_(?P<pod>[^_]+)_(?P<pod_uid>[^/]+)/(?P<container>[^/]+)/(?P<restart>\d+)\.log')
+
+.namespace = matches.namespace
+.pod = matches.pod
+.pod_uid = matches.pod_uid
+.container = matches.container
+.node = get_hostname!()
+
+# Extract app name from pod name (deployment creates pods like: <app>-<replicaset>-<random>)
+# Example: flui-api-846c4f5dcc-tdgbv -> flui-api
+app_parts = split(matches.pod, "-")
+.app = app_parts[0]
+
+# If pod has a second segment without numbers, include it (e.g., "flui-api" vs just "api")
+if length(app_parts) > 1 && !contains(string!(app_parts[1]), r'\d') {
+  .app = join!([app_parts[0], app_parts[1]], "-")
+}
+
+# Add custom flui labels
+.hostname = get_hostname!()
+.server_type = "SERVER_TYPE_PLACEHOLDER"
+.server_id = "SERVER_ID_PLACEHOLDER"
+.cluster_id = "CLUSTER_ID_PLACEHOLDER"
+.cluster_name = "CLUSTER_NAME_PLACEHOLDER"
+.cloud_provider = "CLOUD_PROVIDER_PLACEHOLDER"
+.cluster_type = "CLUSTER_TYPE_PLACEHOLDER"
+.source_type = "kubernetes"
+.filename = replace(to_string!(.file), r'^.*/', "")
+
+# For Kubernetes logs, service is the app name
+.service = .app
+'''
+
 # Sink: Loki
 [sinks.loki]
 type = "loki"
-inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_logs"]
+inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_logs", "enrich_k8s_pods"]
 endpoint = "http://LOKI_ENDPOINT_PLACEHOLDER"
 encoding.codec = "json"
 labels.cluster_id = "{{ cluster_id }}"
@@ -293,11 +343,17 @@ labels.cluster_type = "{{ cluster_type }}"
 labels.cloud_provider = "{{ cloud_provider }}"
 labels.source_type = "{{ source_type }}"
 labels.filename = "{{ filename }}"
+# Kubernetes-specific labels (only present for source_type=kubernetes)
+labels.namespace = "{{ namespace }}"
+labels.pod = "{{ pod }}"
+labels.app = "{{ app }}"
+labels.container = "{{ container }}"
+labels.node = "{{ node }}"
 
 # Sink: File backup
 [sinks.file_backup]
 type = "file"
-inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_logs"]
+inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_logs", "enrich_k8s_pods"]
 path = "/var/log/vector/flui-%Y-%m-%d.log"
 encoding.codec = "json"
 compression = "gzip"
