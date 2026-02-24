@@ -207,7 +207,10 @@ exclude = [
   "/var/log/pods/kube-system_*/**/*.log",
   "/var/log/pods/cert-manager_*/**/*.log"
 ]
-read_from = "end"
+read_from = "beginning"
+max_line_bytes = 102400      # 100KB max per line (prevents OOM from giant log lines)
+ignore_older_secs = 604800   # Ignore logs older than 7 days (prevents excessive backfill)
+max_read_bytes = 10485760    # Max 10MB per read cycle (throttles backfill to avoid Loki overload)
 
 # Transform: enrich journald logs
 [transforms.enrich_journald]
@@ -228,6 +231,25 @@ source = '''
 .service = .SYSLOG_IDENTIFIER
 if is_null(.service) { .service = .UNIT }
 if is_null(.service) { .service = "unknown" }
+
+# Map journald PRIORITY to log level
+# Journald priorities: 0=emerg, 1=alert, 2=crit, 3=err, 4=warning, 5=notice, 6=info, 7=debug
+if exists(.PRIORITY) {
+  priority = to_int!(.PRIORITY)
+  if priority <= 2 {
+    .level = "fatal"
+  } else if priority == 3 {
+    .level = "error"
+  } else if priority == 4 {
+    .level = "warn"
+  } else if priority <= 6 {
+    .level = "info"
+  } else {
+    .level = "debug"
+  }
+} else {
+  .level = "info"
+}
 '''
 
 # Transform: enrich syslog files
@@ -247,6 +269,32 @@ source = '''
 
 # For syslog, service is derived from filename (e.g., "syslog", "kern.log", "auth.log")
 .service = replace(.filename, r'\.log$', "")
+
+# Extract log level from syslog severity (if available in structured syslog)
+# Or parse from message using generic pattern
+if exists(.severity) {
+  severity_lower = downcase(string!(.severity))
+  if severity_lower == "emerg" || severity_lower == "alert" || severity_lower == "crit" {
+    .level = "fatal"
+  } else if severity_lower == "err" || severity_lower == "error" {
+    .level = "error"
+  } else if severity_lower == "warning" || severity_lower == "warn" {
+    .level = "warn"
+  } else if severity_lower == "notice" || severity_lower == "info" {
+    .level = "info"
+  } else {
+    .level = "debug"
+  }
+} else {
+  # Try to extract level from message text
+  level_match, level_err = parse_regex(.message, r'(?i)\b(FATAL|ERROR|WARN|WARNING|INFO|DEBUG)\b')
+  if level_err == null {
+    .level = downcase!(level_match[1])
+    if .level == "warning" { .level = "warn" }
+  } else {
+    .level = "info"
+  }
+}
 '''
 
 # Transform: enrich init logs
@@ -266,6 +314,15 @@ source = '''
 
 # Service is the init script name (e.g., "flui-init", "k3s-master-init")
 .service = replace(.filename, r'\.log$', "")
+
+# Extract log level from message (init scripts typically use [ERROR], [WARN], [INFO] format)
+level_match, level_err = parse_regex(.message, r'(?i)\[(FATAL|ERROR|WARN|WARNING|INFO|DEBUG)\]|\b(FATAL|ERROR|WARN|WARNING|INFO|DEBUG):')
+if level_err == null {
+  .level = downcase!(level_match[1] ?? level_match[2])
+  if .level == "warning" { .level = "warn" }
+} else {
+  .level = "info"
+}
 '''
 
 # Transform: enrich application logs
@@ -285,6 +342,30 @@ source = '''
 
 # Service is the application log file name
 .service = replace(.filename, r'\.log$', "")
+
+# Try to parse as JSON first, then fallback to text patterns
+parsed_json, parse_err = parse_json(.message)
+if parse_err == null {
+  # JSON log - extract level
+  if exists(parsed_json.level) {
+    .level = downcase(string!(parsed_json.level))
+  } else if exists(parsed_json.severity) {
+    .level = downcase(string!(parsed_json.severity))
+  } else if exists(parsed_json.lvl) {
+    .level = downcase(string!(parsed_json.lvl))
+  } else {
+    .level = "info"
+  }
+} else {
+  # Text log - try to extract level from message
+  level_match, level_err = parse_regex(.message, r'(?i)\b(FATAL|ERROR|WARN|WARNING|INFO|DEBUG|TRACE)\b')
+  if level_err == null {
+    .level = downcase!(level_match[1])
+    if .level == "warning" { .level = "warn" }
+  } else {
+    .level = "info"
+  }
+}
 '''
 
 # Transform: enrich Kubernetes pod logs
