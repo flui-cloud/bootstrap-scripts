@@ -288,8 +288,8 @@ if exists(.severity) {
 } else {
   # Try to extract level from message text
   level_match, level_err = parse_regex(.message, r'(?i)\b(FATAL|ERROR|WARN|WARNING|INFO|DEBUG)\b')
-  if level_err == null {
-    .level = downcase!(level_match[1])
+  if level_err == null && exists(level_match[1]) {
+    .level = downcase(string!(level_match[1]))
     if .level == "warning" { .level = "warn" }
   } else {
     .level = "info"
@@ -318,7 +318,13 @@ source = '''
 # Extract log level from message (init scripts typically use [ERROR], [WARN], [INFO] format)
 level_match, level_err = parse_regex(.message, r'(?i)\[(FATAL|ERROR|WARN|WARNING|INFO|DEBUG)\]|\b(FATAL|ERROR|WARN|WARNING|INFO|DEBUG):')
 if level_err == null {
-  .level = downcase!(level_match[1] ?? level_match[2])
+  if exists(level_match[1]) {
+    .level = downcase(string!(level_match[1]))
+  } else if exists(level_match[2]) {
+    .level = downcase(string!(level_match[2]))
+  } else {
+    .level = "info"
+  }
   if .level == "warning" { .level = "warn" }
 } else {
   .level = "info"
@@ -359,8 +365,8 @@ if parse_err == null {
 } else {
   # Text log - try to extract level from message
   level_match, level_err = parse_regex(.message, r'(?i)\b(FATAL|ERROR|WARN|WARNING|INFO|DEBUG|TRACE)\b')
-  if level_err == null {
-    .level = downcase!(level_match[1])
+  if level_err == null && exists(level_match[1]) {
+    .level = downcase(string!(level_match[1]))
     if .level == "warning" { .level = "warn" }
   } else {
     .level = "info"
