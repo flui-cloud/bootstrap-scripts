@@ -617,6 +617,7 @@ type = "loki"
 inputs = ["enrich_k8s_pods"]
 endpoint = "http://LOKI_ENDPOINT_PLACEHOLDER"
 encoding.codec = "json"
+out_of_order_action = "rewrite_timestamp"
 # Common cluster labels
 labels.cluster_id = "{{ cluster_id }}"
 labels.cluster_name = "{{ cluster_name }}"
@@ -632,7 +633,6 @@ labels.namespace = "{{ namespace }}"
 labels.pod = "{{ pod }}"
 labels.app = "{{ app }}"
 labels.container = "{{ container }}"
-labels.node = "{{ node }}"
 labels.stream = "{{ stream }}"
 # Log level (parsed from app JSON logs)
 labels.level = "{{ level }}"
@@ -643,6 +643,7 @@ type = "loki"
 inputs = ["enrich_journald", "enrich_syslog", "enrich_flui_init", "enrich_flui_logs"]
 endpoint = "http://LOKI_ENDPOINT_PLACEHOLDER"
 encoding.codec = "json"
+out_of_order_action = "rewrite_timestamp"
 # Common labels for host logs
 labels.cluster_id = "{{ cluster_id }}"
 labels.cluster_name = "{{ cluster_name }}"
