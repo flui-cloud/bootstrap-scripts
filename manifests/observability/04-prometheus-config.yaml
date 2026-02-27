@@ -8,6 +8,11 @@ metadata:
     app.kubernetes.io/name: prometheus
     app.kubernetes.io/managed-by: flui-cloud
     app.kubernetes.io/instance: prometheus
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "app"
+    flui.cloud/owner-kind: "application"
+    flui.cloud/owner-id: "prometheus"
+    flui.cloud/app-slug: "prometheus"
 data:
   prometheus.yml: |
     global:

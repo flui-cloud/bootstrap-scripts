@@ -8,6 +8,11 @@ metadata:
     app.kubernetes.io/name: loki
     app.kubernetes.io/managed-by: flui-cloud
     app.kubernetes.io/instance: loki
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "app"
+    flui.cloud/owner-kind: "application"
+    flui.cloud/owner-id: "loki"
+    flui.cloud/app-slug: "loki"
 data:
   loki.yaml: |
     auth_enabled: false
@@ -83,6 +88,10 @@ metadata:
     app.kubernetes.io/name: loki
     app.kubernetes.io/managed-by: flui-cloud
     app.kubernetes.io/instance: loki
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 spec:
   type: NodePort
   ports:
@@ -102,6 +111,10 @@ metadata:
     app.kubernetes.io/name: loki
     app.kubernetes.io/managed-by: flui-cloud
     app.kubernetes.io/instance: loki
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
     cluster: flui-observability
     component: logging
   annotations:

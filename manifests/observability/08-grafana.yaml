@@ -8,6 +8,10 @@ metadata:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/managed-by: flui-cloud
     app.kubernetes.io/instance: grafana
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 spec:
   type: NodePort
   ports:
@@ -27,6 +31,10 @@ metadata:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/managed-by: flui-cloud
     app.kubernetes.io/instance: grafana
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 spec:
   replicas: 1
   selector:
@@ -63,4 +71,4 @@ spec:
       volumes:
         - name: datasources
           configMap:
-            name: grafana-datasources
+            name: grafana-config

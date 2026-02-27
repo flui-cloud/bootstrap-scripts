@@ -8,6 +8,10 @@ metadata:
     app.kubernetes.io/name: postgres
     app.kubernetes.io/managed-by: flui-cloud
     app.kubernetes.io/instance: postgres
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 spec:
   type: NodePort
   ports:
@@ -27,6 +31,10 @@ metadata:
     app.kubernetes.io/name: postgres
     app.kubernetes.io/managed-by: flui-cloud
     app.kubernetes.io/instance: postgres
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 spec:
   accessModes:
     - ReadWriteOnce
@@ -45,6 +53,10 @@ metadata:
     app.kubernetes.io/name: postgres
     app.kubernetes.io/managed-by: flui-cloud
     app.kubernetes.io/instance: postgres
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 spec:
   serviceName: postgres
   replicas: 1

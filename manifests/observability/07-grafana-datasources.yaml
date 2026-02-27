@@ -1,13 +1,18 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: grafana-datasources
+  name: grafana-config
   namespace: default
   labels:
     app: grafana
     app.kubernetes.io/name: grafana
     app.kubernetes.io/managed-by: flui-cloud
     app.kubernetes.io/instance: grafana
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "app"
+    flui.cloud/owner-kind: "application"
+    flui.cloud/owner-id: "grafana"
+    flui.cloud/app-slug: "grafana"
 data:
   datasources.yml: |
     apiVersion: 1
