@@ -165,10 +165,23 @@ data:
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
 
-          # CPU utilization percentage (usage / requests)
+          # CPU utilization percentage vs limits (usage / limits) — null if no limit set
           - record: flui:app_cpu_utilization_percent
             expr: |
-              (flui:app_cpu_usage_cores / flui:app_cpu_requests_cores) * 100
+              (flui:app_cpu_usage_cores / flui:app_cpu_limits_cores) * 100
+
+          # CPU usage per pod (preserves `pod` label for per-replica breakdown)
+          - record: flui:app_cpu_usage_cores_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                rate(container_cpu_usage_seconds_total{
+                  image!="",
+                  container!="POD",
+                  container!=""
+                }[5m])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
 
       # =====================================================
       # Flui App Metrics - Memory
@@ -207,10 +220,23 @@ data:
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
 
-          # Memory utilization percentage (usage / requests)
+          # Memory utilization percentage vs limits (usage / limits) — null if no limit set
           - record: flui:app_memory_utilization_percent
             expr: |
-              (flui:app_memory_usage_bytes / flui:app_memory_requests_bytes) * 100
+              (flui:app_memory_usage_bytes / flui:app_memory_limits_bytes) * 100
+
+          # Memory usage per pod (preserves `pod` label for per-replica breakdown)
+          - record: flui:app_memory_usage_bytes_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                container_memory_working_set_bytes{
+                  image!="",
+                  container!="POD",
+                  container!=""
+                }
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
 
       # =====================================================
       # Flui App Metrics - Network
@@ -231,6 +257,24 @@ data:
           - record: flui:app_network_transmit_bytes_rate
             expr: |
               sum by (namespace, label_app_kubernetes_io_name) (
+                rate(container_network_transmit_bytes_total{interface="eth0"}[5m])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+          # Network receive per pod (preserves `pod` label for per-replica breakdown)
+          - record: flui:app_network_receive_bytes_rate_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                rate(container_network_receive_bytes_total{interface="eth0"}[5m])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+          # Network transmit per pod (preserves `pod` label for per-replica breakdown)
+          - record: flui:app_network_transmit_bytes_rate_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
                 rate(container_network_transmit_bytes_total{interface="eth0"}[5m])
                 * on (namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
@@ -304,6 +348,15 @@ data:
             expr: |
               sum by (namespace, label_app_kubernetes_io_name) (
                 increase(kube_pod_container_status_restarts_total[1h])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+          # Restart count per pod (preserves `pod` label for per-replica breakdown)
+          - record: flui:app_restart_total_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_container_status_restarts_total
                 * on (namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
