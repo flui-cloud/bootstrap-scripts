@@ -183,6 +183,29 @@ data:
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
 
+          # CPU requests per pod
+          - record: flui:app_cpu_requests_cores_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_requests{resource="cpu"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+          # CPU limits per pod
+          - record: flui:app_cpu_limits_cores_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_limits{resource="cpu"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+          # CPU utilization per pod (usage / limits)
+          - record: flui:app_cpu_utilization_percent_by_pod
+            expr: |
+              (flui:app_cpu_usage_cores_by_pod / flui:app_cpu_limits_cores_by_pod) * 100
+
       # =====================================================
       # Flui App Metrics - Memory
       # =====================================================
@@ -237,6 +260,29 @@ data:
                 * on (namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
+
+          # Memory requests per pod
+          - record: flui:app_memory_requests_bytes_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_requests{resource="memory"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+          # Memory limits per pod
+          - record: flui:app_memory_limits_bytes_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_limits{resource="memory"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+          # Memory utilization per pod (usage / limits)
+          - record: flui:app_memory_utilization_percent_by_pod
+            expr: |
+              (flui:app_memory_usage_bytes_by_pod / flui:app_memory_limits_bytes_by_pod) * 100
 
       # =====================================================
       # Flui App Metrics - Network
@@ -357,6 +403,33 @@ data:
             expr: |
               sum by (namespace, pod, label_app_kubernetes_io_name) (
                 kube_pod_container_status_restarts_total
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+          # Restart rate per pod (last hour)
+          - record: flui:app_restart_rate_1h_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                increase(kube_pod_container_status_restarts_total[1h])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+          # Pod ready status (1 = Ready, 0 = Not Ready) per pod
+          - record: flui:app_pod_ready_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_status_ready{condition="true"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+          # Pod phase per pod (Running=1 etc — use flui:app_pod_phase_by_pod label for phase name)
+          - record: flui:app_pod_phase_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name, phase) (
+                (kube_pod_status_phase{phase=~"Running|Pending|Failed|Succeeded|Unknown"} > 0)
                 * on (namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
