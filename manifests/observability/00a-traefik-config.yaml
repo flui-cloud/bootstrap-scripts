@@ -10,3 +10,10 @@ spec:
       nodePorts:
         web: 30180
         websecure: 30143
+    ports:
+      web:
+        redirectTo:
+          port: websecure
+      websecure:
+        tls:
+          enabled: true
