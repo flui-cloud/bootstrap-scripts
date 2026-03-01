@@ -8,6 +8,9 @@ spec:
     deployment:
       kind: DaemonSet
     hostNetwork: true
+    updateStrategy:
+      rollingUpdate:
+        maxUnavailable: 1
     ports:
       web:
         port: 80
