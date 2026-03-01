@@ -5,15 +5,17 @@ metadata:
   namespace: kube-system
 spec:
   valuesContent: |-
-    service:
-      type: NodePort
-      nodePorts:
-        web: 30180
-        websecure: 30143
+    deployment:
+      kind: DaemonSet
+    hostNetwork: true
     ports:
       web:
-        redirectTo:
-          port: websecure
+        port: 80
+        exposedPort: 80
+        hostPort: 80
       websecure:
+        port: 443
+        exposedPort: 443
+        hostPort: 443
         tls:
           enabled: true
