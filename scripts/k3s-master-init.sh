@@ -26,6 +26,15 @@ POSTGRES_PASSWORD="${POSTGRES_PASSWORD}"
 REDIS_PASSWORD="${REDIS_PASSWORD}"
 GRAFANA_PASSWORD="${GRAFANA_PASSWORD}"
 
+# Zitadel identity provider configuration (values must be provided by CLI, never generated here)
+ZITADEL_MASTERKEY="${ZITADEL_MASTERKEY}"
+ZITADEL_DB_ADMIN_PASSWORD="${ZITADEL_DB_ADMIN_PASSWORD}"
+ZITADEL_DB_USER_PASSWORD="${ZITADEL_DB_USER_PASSWORD}"
+ZITADEL_DOMAIN="${ZITADEL_DOMAIN:-}"
+ZITADEL_ADMIN_EMAIL="${ZITADEL_ADMIN_EMAIL:-admin@flui.cloud}"
+ZITADEL_ADMIN_TEMP_PASSWORD="${ZITADEL_ADMIN_TEMP_PASSWORD:-ChangeMe123!}"
+ZITADEL_AUDIENCE="${ZITADEL_AUDIENCE:-}"
+
 LOG_FILE="/var/log/k3s-master-init.log"
 HEALTH_FILE="/var/log/observability-health.json"
 
@@ -618,6 +627,43 @@ else
     fi
 
     log "✅ cert-manager installation completed"
+
+    # ============================================================
+    # STEP 11b: Install cert-manager-webhook-hetzner
+    # ============================================================
+    log ""
+    log "=========================================="
+    log "Installing cert-manager-webhook-hetzner"
+    log "=========================================="
+
+    HETZNER_WEBHOOK_VERSION="${HETZNER_WEBHOOK_VERSION:-0.4.1}"
+    log "cert-manager-webhook-hetzner version: $HETZNER_WEBHOOK_VERSION"
+
+    if ! command -v helm &>/dev/null; then
+        log "→ Installing Helm..."
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    fi
+
+    if helm repo list 2>/dev/null | grep -q cert-manager-webhook-hetzner; then
+        helm repo update cert-manager-webhook-hetzner
+    else
+        helm repo add cert-manager-webhook-hetzner \
+            https://vadimkim.github.io/cert-manager-webhook-hetzner
+        helm repo update cert-manager-webhook-hetzner
+    fi
+
+    if helm upgrade --install cert-manager-webhook-hetzner \
+        cert-manager-webhook-hetzner/cert-manager-webhook-hetzner \
+        --namespace cert-manager \
+        --version "${HETZNER_WEBHOOK_VERSION}" \
+        --set groupName=acme.milas.dev \
+        --wait \
+        --timeout 120s; then
+
+        log "✅ cert-manager-webhook-hetzner installed"
+    else
+        warn "cert-manager-webhook-hetzner installation failed — DNS-01 wildcard certificates will not work"
+    fi
 fi
 
 # ============================================================
@@ -631,9 +677,21 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
 
     update_health "deploying" "observability-stack" ""
 
+    # Validate Zitadel secrets were provided by CLI (must never be empty)
+    if [ -z "$ZITADEL_MASTERKEY" ] || [ -z "$ZITADEL_DB_ADMIN_PASSWORD" ] || [ -z "$ZITADEL_DB_USER_PASSWORD" ]; then
+        error "ZITADEL_MASTERKEY, ZITADEL_DB_ADMIN_PASSWORD, ZITADEL_DB_USER_PASSWORD must be set by the CLI before bootstrap"
+    fi
+
     # Get primary IP for NodePort access
     PRIMARY_IP=$(hostname -I | awk '{print $1}')
     export MASTER_IP="$PRIMARY_IP"
+    # Default Zitadel domain to nip.io-based domain if not explicitly set
+    if [ -z "$ZITADEL_DOMAIN" ]; then
+        ZITADEL_DOMAIN="auth.${PRIMARY_IP}.nip.io"
+        log "ZITADEL_DOMAIN not set, defaulting to: $ZITADEL_DOMAIN"
+    fi
+    export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
+    export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
 
     # Create manifests directory for K3s auto-deploy
     MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
@@ -644,7 +702,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "Deploying components: namespace, postgres, redis, prometheus, loki, grafana"
 
     # Download and apply manifests from GitHub
-    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 00a-traefik-config; do
+    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-zitadel 00a-traefik-config; do
         log "→ Downloading ${manifest}.yaml..."
 
         # Download manifest
@@ -656,6 +714,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         # Note: envsubst is part of gettext-base package
         if command -v envsubst &> /dev/null; then
             export CLUSTER_ID SERVER_ID CLUSTER_NAME CLOUD_PROVIDER
+            export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
+            export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         else
             log "⚠️  envsubst not found, using sed for variable substitution..."
@@ -669,6 +729,13 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s/\${SERVER_ID}/$SERVER_ID/g" \
                 -e "s/\${CLUSTER_NAME}/$CLUSTER_NAME/g" \
                 -e "s/\${CLOUD_PROVIDER}/$CLOUD_PROVIDER/g" \
+                -e "s|\${ZITADEL_MASTERKEY}|$ZITADEL_MASTERKEY|g" \
+                -e "s/\${ZITADEL_DB_ADMIN_PASSWORD}/$ZITADEL_DB_ADMIN_PASSWORD/g" \
+                -e "s/\${ZITADEL_DB_USER_PASSWORD}/$ZITADEL_DB_USER_PASSWORD/g" \
+                -e "s/\${ZITADEL_DOMAIN}/$ZITADEL_DOMAIN/g" \
+                -e "s/\${ZITADEL_ADMIN_EMAIL}/$ZITADEL_ADMIN_EMAIL/g" \
+                -e "s/\${ZITADEL_ADMIN_TEMP_PASSWORD}/$ZITADEL_ADMIN_TEMP_PASSWORD/g" \
+                -e "s/\${ZITADEL_AUDIENCE}/$ZITADEL_AUDIENCE/g" \
                 "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         fi
 
@@ -703,6 +770,18 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         update_health "failed" "postgres" "$error_msg"
         error "$error_msg"
     fi
+
+    # Create Zitadel database and users on the shared PostgreSQL instance
+    log "→ Creating Zitadel database and users on PostgreSQL..."
+    kubectl exec -n default statefulset/postgres -- \
+        psql -U fluicloud -c "CREATE DATABASE zitadel;" 2>/dev/null || log "  (zitadel database already exists)"
+    kubectl exec -n default statefulset/postgres -- \
+        psql -U fluicloud -c "CREATE USER zitadel_admin WITH PASSWORD '${ZITADEL_DB_ADMIN_PASSWORD}';" 2>/dev/null || log "  (zitadel_admin user already exists)"
+    kubectl exec -n default statefulset/postgres -- \
+        psql -U fluicloud -c "GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel_admin;" 2>/dev/null || true
+    kubectl exec -n default statefulset/postgres -- \
+        psql -U fluicloud -c "CREATE USER zitadel_user WITH PASSWORD '${ZITADEL_DB_USER_PASSWORD}';" 2>/dev/null || log "  (zitadel_user user already exists)"
+    log "✅ Zitadel database and users created"
 
     # Wait for Redis
     log "→ Waiting for Redis..."
@@ -779,6 +858,29 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         warn "Flui Web did not become ready within ${COMPONENT_TIMEOUT}s (non-critical, image may not be available yet)"
     fi
 
+    # Wait for Zitadel jobs and deployment
+    log "→ Waiting for Zitadel init job..."
+    update_health "deploying" "zitadel" ""
+    if kubectl wait --for=condition=complete job/zitadel-init -n default --timeout=120s 2>/dev/null; then
+        log "✅ Zitadel init job completed"
+    else
+        warn "Zitadel init job did not complete within 120s (non-critical, will retry)"
+    fi
+
+    log "→ Waiting for Zitadel setup job..."
+    if kubectl wait --for=condition=complete job/zitadel-setup -n default --timeout=300s 2>/dev/null; then
+        log "✅ Zitadel setup job completed"
+    else
+        warn "Zitadel setup job did not complete within 300s (non-critical)"
+    fi
+
+    log "→ Waiting for Zitadel deployment..."
+    if kubectl rollout status deployment/zitadel -n default --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+        log "✅ Zitadel is ready"
+    else
+        warn "Zitadel did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"
+    fi
+
     log ""
     log "✅ All observability stack components are ready!"
 
@@ -794,6 +896,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "Loki:       http://$PRIMARY_IP:30100"
     log "Flui API:   http://$PRIMARY_IP:30080"
     log "Flui Web:   http://$PRIMARY_IP:30880"
+    log "Zitadel:    https://$ZITADEL_DOMAIN (admin: $ZITADEL_ADMIN_EMAIL)"
     log "Ingress:    http://$PRIMARY_IP:80 (Traefik)"
     log ""
 
