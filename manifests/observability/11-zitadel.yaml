@@ -42,15 +42,20 @@ data:
       Enabled: false
 
     Database:
-      Postgres:
+      postgres:
         Host: postgres.default.svc.cluster.local
+        Port: 5432
         Database: zitadel
-        SSL:
-          Mode: require
-        Admin:
-          Username: zitadel_admin
+        MaxOpenConns: 10
+        MaxIdleConns: 5
         User:
           Username: zitadel_user
+          SSL:
+            Mode: require
+        Admin:
+          Username: zitadel_admin
+          SSL:
+            Mode: require
 
     DefaultInstance:
       InstanceName: Flui.Cloud
@@ -104,12 +109,6 @@ spec:
                 secretKeyRef:
                   name: zitadel-secrets
                   key: db-user-password
-            - name: ZITADEL_DATABASE_POSTGRES_PORT
-              value: "5432"
-            - name: ZITADEL_DATABASE_POSTGRES_MAXOPENCONNS
-              value: "10"
-            - name: ZITADEL_DATABASE_POSTGRES_MAXIDLECONNS
-              value: "5"
           volumeMounts:
             - name: config
               mountPath: /config
@@ -168,12 +167,6 @@ spec:
                 secretKeyRef:
                   name: zitadel-secrets
                   key: db-user-password
-            - name: ZITADEL_DATABASE_POSTGRES_PORT
-              value: "5432"
-            - name: ZITADEL_DATABASE_POSTGRES_MAXOPENCONNS
-              value: "10"
-            - name: ZITADEL_DATABASE_POSTGRES_MAXIDLECONNS
-              value: "5"
             - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD_VALUE
               valueFrom:
                 secretKeyRef:
@@ -240,14 +233,6 @@ spec:
                 secretKeyRef:
                   name: zitadel-secrets
                   key: db-user-password
-            - name: ZITADEL_DATABASE_POSTGRES_PORT
-              value: "5432"
-            - name: ZITADEL_DATABASE_POSTGRES_MAXOPENCONNS
-              value: "10"
-            - name: ZITADEL_DATABASE_POSTGRES_MAXIDLECONNS
-              value: "5"
-            - name: ZITADEL_EXTERNALPORT
-              value: "443"
           volumeMounts:
             - name: config
               mountPath: /config
