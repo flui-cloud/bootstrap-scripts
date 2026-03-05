@@ -44,10 +44,7 @@ data:
     Database:
       postgres:
         Host: postgres.default.svc.cluster.local
-        Port: 5432
         Database: zitadel
-        MaxOpenConns: 10
-        MaxIdleConns: 5
         User:
           Username: zitadel_user
           SSL:

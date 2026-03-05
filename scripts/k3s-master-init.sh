@@ -776,11 +776,11 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     kubectl exec -n default statefulset/postgres -- \
         psql -U fluicloud -c "CREATE DATABASE zitadel;" 2>/dev/null || log "  (zitadel database already exists)"
     kubectl exec -n default statefulset/postgres -- \
-        psql -U fluicloud -c "CREATE USER zitadel_admin WITH CREATEROLE PASSWORD '${ZITADEL_DB_ADMIN_PASSWORD}';" 2>/dev/null || log "  (zitadel_admin user already exists)"
+        psql -U fluicloud -c "CREATE USER zitadel_admin WITH CREATEDB CREATEROLE PASSWORD '${ZITADEL_DB_ADMIN_PASSWORD}';" 2>/dev/null || log "  (zitadel_admin user already exists)"
+    kubectl exec -n default statefulset/postgres -- \
+        psql -U fluicloud -c "ALTER USER zitadel_admin WITH CREATEDB CREATEROLE;" 2>/dev/null || true
     kubectl exec -n default statefulset/postgres -- \
         psql -U fluicloud -c "GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel_admin;" 2>/dev/null || true
-    kubectl exec -n default statefulset/postgres -- \
-        psql -U fluicloud -c "ALTER USER zitadel_admin CREATEROLE;" 2>/dev/null || true
     kubectl exec -n default statefulset/postgres -- \
         psql -U fluicloud -c "CREATE USER zitadel_user WITH PASSWORD '${ZITADEL_DB_USER_PASSWORD}';" 2>/dev/null || log "  (zitadel_user user already exists)"
     log "✅ Zitadel database and users created"
