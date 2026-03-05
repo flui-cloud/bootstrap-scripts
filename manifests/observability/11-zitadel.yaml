@@ -51,11 +51,11 @@ data:
         User:
           Username: zitadel_user
           SSL:
-            Mode: require
+            Mode: disable
         Admin:
           Username: zitadel_admin
           SSL:
-            Mode: require
+            Mode: disable
 
     DefaultInstance:
       InstanceName: Flui.Cloud
