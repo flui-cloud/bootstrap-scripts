@@ -782,7 +782,15 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     kubectl exec -n default statefulset/postgres -- \
         psql -U fluicloud -c "GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel_admin;" 2>/dev/null || true
     kubectl exec -n default statefulset/postgres -- \
+        psql -U fluicloud -d zitadel -c "GRANT ALL ON SCHEMA public TO zitadel_admin;" 2>/dev/null || true
+    kubectl exec -n default statefulset/postgres -- \
+        psql -U fluicloud -d zitadel -c "ALTER DATABASE zitadel OWNER TO zitadel_admin;" 2>/dev/null || true
+    kubectl exec -n default statefulset/postgres -- \
         psql -U fluicloud -c "CREATE USER zitadel_user WITH PASSWORD '${ZITADEL_DB_USER_PASSWORD}';" 2>/dev/null || log "  (zitadel_user user already exists)"
+    kubectl exec -n default statefulset/postgres -- \
+        psql -U fluicloud -c "GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel_user;" 2>/dev/null || true
+    kubectl exec -n default statefulset/postgres -- \
+        psql -U fluicloud -d zitadel -c "GRANT ALL ON SCHEMA public TO zitadel_user;" 2>/dev/null || true
     log "✅ Zitadel database and users created"
 
     # Wait for Redis
