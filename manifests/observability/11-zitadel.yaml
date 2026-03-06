@@ -86,10 +86,11 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      enableServiceLinks: false
       containers:
         - name: zitadel-init
           image: ghcr.io/zitadel/zitadel:latest
-          args: ["init", "--config", "/config/config.yaml"]
+          args: ["init", "--masterkeyFromEnv", "--config", "/config/config.yaml"]
           env:
             - name: ZITADEL_MASTERKEY
               valueFrom:
@@ -133,6 +134,7 @@ spec:
   template:
     spec:
       restartPolicy: OnFailure
+      enableServiceLinks: false
       initContainers:
         - name: wait-for-init
           image: bitnami/kubectl:latest
@@ -147,7 +149,7 @@ spec:
       containers:
         - name: zitadel-setup
           image: ghcr.io/zitadel/zitadel:latest
-          args: ["setup", "--config", "/config/config.yaml"]
+          args: ["setup", "--masterkeyFromEnv", "--config", "/config/config.yaml"]
           env:
             - name: ZITADEL_MASTERKEY
               valueFrom:
@@ -207,10 +209,11 @@ spec:
         app.kubernetes.io/managed-by: flui-cloud
         app.kubernetes.io/instance: zitadel
     spec:
+      enableServiceLinks: false
       containers:
         - name: zitadel
           image: ghcr.io/zitadel/zitadel:latest
-          args: ["start", "--config", "/config/config.yaml"]
+          args: ["start", "--masterkeyFromEnv", "--config", "/config/config.yaml"]
           ports:
             - containerPort: 8080
               name: http
