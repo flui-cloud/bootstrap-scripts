@@ -868,27 +868,21 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         warn "Flui Web did not become ready within ${COMPONENT_TIMEOUT}s (non-critical, image may not be available yet)"
     fi
 
-    # Wait for Zitadel jobs and deployment
-    log "→ Waiting for Zitadel init job..."
+    # Wait for Zitadel API deployment (uses start-from-init — no separate jobs)
+    log "→ Waiting for Zitadel API deployment (start-from-init runs init+setup+start)..."
     update_health "deploying" "zitadel" ""
-    if kubectl wait --for=condition=complete job/zitadel-init -n default --timeout=120s 2>/dev/null; then
-        log "✅ Zitadel init job completed"
-    else
-        warn "Zitadel init job did not complete within 120s (non-critical, will retry)"
-    fi
-
-    log "→ Waiting for Zitadel setup job..."
-    if kubectl wait --for=condition=complete job/zitadel-setup -n default --timeout=300s 2>/dev/null; then
-        log "✅ Zitadel setup job completed"
-    else
-        warn "Zitadel setup job did not complete within 300s (non-critical)"
-    fi
-
-    log "→ Waiting for Zitadel deployment..."
     if kubectl rollout status deployment/zitadel -n default --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
-        log "✅ Zitadel is ready"
+        log "✅ Zitadel API is ready"
     else
-        warn "Zitadel did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"
+        warn "Zitadel API did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"
+    fi
+
+    # Wait for Zitadel login UI deployment (depends on PAT file written by API)
+    log "→ Waiting for Zitadel Login UI deployment..."
+    if kubectl rollout status deployment/zitadel-login -n default --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+        log "✅ Zitadel Login UI is ready"
+    else
+        warn "Zitadel Login UI did not become ready within ${COMPONENT_TIMEOUT}s (non-critical — may be waiting for PAT)"
     fi
 
     log ""
