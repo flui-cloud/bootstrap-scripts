@@ -885,6 +885,38 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         warn "Zitadel Login UI did not become ready within ${COMPONENT_TIMEOUT}s (non-critical — may be waiting for PAT)"
     fi
 
+    # Post-setup: disable password change required for admin user
+    log "→ Disabling password change required for Zitadel admin user..."
+    ZITADEL_PAT=$(kubectl run -n default zitadel-pat-reader --image=busybox --restart=Never --rm \
+        --overrides='{"spec":{"volumes":[{"name":"b","persistentVolumeClaim":{"claimName":"zitadel-bootstrap-pvc"}}],"containers":[{"name":"r","image":"busybox","command":["sh","-c","cat /b/admin.pat"],"volumeMounts":[{"name":"b","mountPath":"/b"}]}],"restartPolicy":"Never"}}' \
+        2>/dev/null | tr -d '\n')
+
+    if [ -n "$ZITADEL_PAT" ]; then
+        # Find admin user ID by username (use internal NodePort — no domain/TLS dependency)
+        ADMIN_USER_ID=$(curl -s -X POST "http://localhost:30800/v2/users/_search" \
+            -H "Authorization: Bearer ${ZITADEL_PAT}" \
+            -H "Content-Type: application/json" \
+            -d '{"queries":[{"userNameQuery":{"userName":"flui-admin","method":"TEXT_QUERY_METHOD_EQUALS"}}]}' \
+            2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][0]['userId'])" 2>/dev/null)
+
+        if [ -n "$ADMIN_USER_ID" ]; then
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:30800/v2/users/${ADMIN_USER_ID}/password" \
+                -H "Authorization: Bearer ${ZITADEL_PAT}" \
+                -H "Content-Type: application/json" \
+                -d "{\"newPassword\":{\"password\":\"${ZITADEL_ADMIN_TEMP_PASSWORD}\",\"changeRequired\":false}}")
+
+            if [ "$HTTP_STATUS" = "200" ]; then
+                log "✅ Zitadel admin password change required disabled (user: ${ADMIN_USER_ID})"
+            else
+                warn "Failed to disable change_required for admin (HTTP ${HTTP_STATUS}) — login may require password change"
+            fi
+        else
+            warn "Could not find Zitadel admin user ID — skipping change_required fix"
+        fi
+    else
+        warn "Could not read Zitadel PAT from PVC — skipping change_required fix"
+    fi
+
     log ""
     log "✅ All observability stack components are ready!"
 

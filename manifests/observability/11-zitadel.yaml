@@ -60,7 +60,7 @@ data:
       Org:
         Name: Flui
         Human:
-          UserName: ${ZITADEL_ADMIN_EMAIL}
+          UserName: flui-admin
           Email:
             Address: ${ZITADEL_ADMIN_EMAIL}
             Verified: true
@@ -132,7 +132,7 @@ spec:
                   name: zitadel-secrets
                   key: admin-temp-password
             - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD_CHANGEREQUIRED
-              value: "true"
+              value: "false"
             # Login client service account: API writes the PAT to /zitadel/bootstrap/login-client.pat
             # The login UI reads it from there via ZITADEL_SERVICE_USER_TOKEN_FILE
             - name: ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME
@@ -143,6 +143,15 @@ spec:
               value: "2099-01-01T00:00:00Z"
             - name: ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH
               value: "/zitadel/bootstrap/login-client.pat"
+            # Bootstrap machine user with IAM_OWNER role — PAT used by init script to manage users
+            - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME
+              value: "flui-bootstrap"
+            - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME
+              value: "Flui Bootstrap Admin"
+            - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE
+              value: "2099-01-01T00:00:00Z"
+            - name: ZITADEL_FIRSTINSTANCE_PATPATH
+              value: "/zitadel/bootstrap/admin.pat"
             # LoginV2 feature flags — enable the new login UI and point it to the login service
             - name: ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED
               value: "true"
@@ -204,13 +213,14 @@ metadata:
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app: zitadel
   ports:
     - name: http
       port: 8080
       targetPort: 8080
+      nodePort: 30800
 ---
 # PVC shared between the Zitadel API and Login UI pods.
 # The API (start-from-init) writes login-client.pat to /zitadel/bootstrap/.
