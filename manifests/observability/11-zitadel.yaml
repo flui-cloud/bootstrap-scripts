@@ -213,14 +213,13 @@ metadata:
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: zitadel
   ports:
     - name: http
       port: 8080
       targetPort: 8080
-      nodePort: 30800
 ---
 # PVC shared between the Zitadel API and Login UI pods.
 # The API (start-from-init) writes login-client.pat to /zitadel/bootstrap/.
