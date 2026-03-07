@@ -702,7 +702,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "Deploying components: namespace, postgres, redis, prometheus, loki, grafana"
 
     # Download and apply manifests from GitHub
-    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-zitadel 13-zitadel-setup-job 00a-traefik-config; do
+    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-zitadel 00a-traefik-config; do
         log "→ Downloading ${manifest}.yaml..."
 
         # Download manifest
@@ -877,21 +877,6 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         warn "Zitadel API did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"
     fi
 
-    # Wait for Zitadel login UI deployment (depends on PAT file written by API)
-    log "→ Waiting for Zitadel Login UI deployment..."
-    if kubectl rollout status deployment/zitadel-login -n default --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
-        log "✅ Zitadel Login UI is ready"
-    else
-        warn "Zitadel Login UI did not become ready within ${COMPONENT_TIMEOUT}s (non-critical — may be waiting for PAT)"
-    fi
-
-    # Wait for Zitadel post-setup Job (runs inside K8s, disables changeRequired for admin user)
-    log "→ Waiting for Zitadel post-setup job..."
-    if kubectl wait job/zitadel-post-setup -n default --for=condition=Complete --timeout=120s 2>/dev/null; then
-        log "✅ Zitadel post-setup complete"
-    else
-        warn "Zitadel post-setup job did not complete within 120s (non-critical)"
-    fi
 
     log ""
     log "✅ All observability stack components are ready!"

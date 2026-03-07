@@ -101,7 +101,6 @@ spec:
         - name: zitadel
           image: ghcr.io/zitadel/zitadel:latest
           # start-from-init: runs init + setup + start in a single command
-          # This also creates the login client service account and writes the PAT to the bootstrap volume
           args:
             - start-from-init
             - --masterkeyFromEnv
@@ -126,49 +125,19 @@ spec:
                 secretKeyRef:
                   name: zitadel-secrets
                   key: db-user-password
-            - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD_VALUE
+            - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: zitadel-secrets
                   key: admin-temp-password
             - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME
               value: "flui-admin"
-            - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD_CHANGEREQUIRED
+            - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED
               value: "false"
-            # Login client service account: API writes the PAT to /zitadel/bootstrap/login-client.pat
-            # The login UI reads it from there via ZITADEL_SERVICE_USER_TOKEN_FILE
-            - name: ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME
-              value: "login-client"
-            - name: ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME
-              value: "Login UI Service Account"
-            - name: ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE
-              value: "2099-01-01T00:00:00Z"
-            - name: ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH
-              value: "/zitadel/bootstrap/login-client.pat"
-            # Bootstrap machine user with IAM_OWNER role — PAT used by init script to manage users
-            - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME
-              value: "flui-bootstrap"
-            - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME
-              value: "Flui Bootstrap Admin"
-            - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE
-              value: "2099-01-01T00:00:00Z"
-            - name: ZITADEL_FIRSTINSTANCE_PATPATH
-              value: "/zitadel/bootstrap/admin.pat"
-            # LoginV2 feature flags — enable the new login UI and point it to the login service
-            - name: ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED
-              value: "true"
-            - name: ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI
-              value: "https://${ZITADEL_DOMAIN}/ui/v2/login/"
-            - name: ZITADEL_OIDC_DEFAULTLOGINURLV2
-              value: "https://${ZITADEL_DOMAIN}/ui/v2/login/login?authRequest="
-            - name: ZITADEL_OIDC_DEFAULTLOGOUTURLV2
-              value: "https://${ZITADEL_DOMAIN}/ui/v2/login/logout?post_logout_redirect="
           volumeMounts:
             - name: config
               mountPath: /config
               readOnly: true
-            - name: zitadel-bootstrap
-              mountPath: /zitadel/bootstrap
           livenessProbe:
             httpGet:
               path: /debug/healthz
@@ -196,9 +165,6 @@ spec:
         - name: config
           configMap:
             name: zitadel-config
-        - name: zitadel-bootstrap
-          persistentVolumeClaim:
-            claimName: zitadel-bootstrap-pvc
 ---
 apiVersion: v1
 kind: Service
@@ -223,171 +189,7 @@ spec:
       port: 8080
       targetPort: 8080
 ---
-# PVC shared between the Zitadel API and Login UI pods.
-# The API (start-from-init) writes login-client.pat to /zitadel/bootstrap/.
-# The Login UI initContainer waits for the file, then the main container reads it.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: zitadel-bootstrap-pvc
-  namespace: default
-  labels:
-    app: zitadel
-    flui.cloud/managed: "true"
-    flui.cloud/scope: "system"
-    flui.cloud/owner-kind: "platform"
-    flui.cloud/owner-id: "flui-core"
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: local-path
-  resources:
-    requests:
-      storage: 10Mi
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: zitadel-login
-  namespace: default
-  labels:
-    app: zitadel-login
-    app.kubernetes.io/name: zitadel-login
-    app.kubernetes.io/managed-by: flui-cloud
-    app.kubernetes.io/instance: zitadel-login
-    flui.cloud/managed: "true"
-    flui.cloud/scope: "system"
-    flui.cloud/owner-kind: "platform"
-    flui.cloud/owner-id: "flui-core"
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: zitadel-login
-  template:
-    metadata:
-      labels:
-        app: zitadel-login
-        app.kubernetes.io/name: zitadel-login
-        app.kubernetes.io/managed-by: flui-cloud
-        app.kubernetes.io/instance: zitadel-login
-    spec:
-      enableServiceLinks: false
-      initContainers:
-        # Wait for the API to write the PAT file before starting the login UI
-        - name: wait-for-pat
-          image: busybox:latest
-          command:
-            - sh
-            - -c
-            - |
-              echo "Waiting for Zitadel login-client PAT..."
-              until [ -f /zitadel/bootstrap/login-client.pat ]; do
-                echo "PAT not ready yet, sleeping 5s..."
-                sleep 5
-              done
-              echo "PAT found, starting login UI."
-          volumeMounts:
-            - name: zitadel-bootstrap
-              mountPath: /zitadel/bootstrap
-              readOnly: true
-      containers:
-        - name: zitadel-login
-          image: ghcr.io/zitadel/zitadel-login:latest
-          ports:
-            - containerPort: 3000
-              name: http
-          env:
-            # Internal API URL (cluster DNS — no TLS between pods)
-            - name: ZITADEL_API_URL
-              value: "http://zitadel.default.svc.cluster.local:8080"
-            # Next.js base path — must match IngressRoute prefix
-            - name: NEXT_PUBLIC_BASE_PATH
-              value: "/ui/v2/login"
-            # PAT file path for the login client service account
-            - name: ZITADEL_SERVICE_USER_TOKEN_FILE
-              value: "/zitadel/bootstrap/login-client.pat"
-            # Forward the correct Host header to Zitadel API (required for multi-domain routing)
-            - name: CUSTOM_REQUEST_HEADERS
-              value: "Host:${ZITADEL_DOMAIN},X-Forwarded-Proto:https"
-          volumeMounts:
-            - name: zitadel-bootstrap
-              mountPath: /zitadel/bootstrap
-              readOnly: true
-          livenessProbe:
-            httpGet:
-              path: /ui/v2/login
-              port: 3000
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-          readinessProbe:
-            httpGet:
-              path: /ui/v2/login
-              port: 3000
-            initialDelaySeconds: 20
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 3
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 200m
-              memory: 256Mi
-      volumes:
-        - name: zitadel-bootstrap
-          persistentVolumeClaim:
-            claimName: zitadel-bootstrap-pvc
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: zitadel-login
-  namespace: default
-  labels:
-    app: zitadel-login
-    app.kubernetes.io/name: zitadel-login
-    app.kubernetes.io/managed-by: flui-cloud
-    app.kubernetes.io/instance: zitadel-login
-    flui.cloud/managed: "true"
-    flui.cloud/scope: "system"
-    flui.cloud/owner-kind: "platform"
-    flui.cloud/owner-id: "flui-core"
-spec:
-  type: ClusterIP
-  selector:
-    app: zitadel-login
-  ports:
-    - name: http
-      port: 3000
-      targetPort: 3000
----
-# IngressRoute for Zitadel Login UI (higher priority — matches /ui/v2/login prefix first)
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: zitadel-login
-  namespace: default
-  labels:
-    app: zitadel-login
-    flui.cloud/managed: "true"
-    flui.cloud/scope: "system"
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`${ZITADEL_DOMAIN}`) && PathPrefix(`/ui/v2/login`)
-      kind: Rule
-      priority: 250
-      services:
-        - name: zitadel-login
-          port: 3000
-  tls: {}
----
-# IngressRoute for Zitadel API + Console (lower priority — catches everything else on the domain)
+# IngressRoute for Zitadel API + Console
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
