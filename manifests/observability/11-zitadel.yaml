@@ -152,10 +152,16 @@ spec:
             - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED
               value: "false"
             # flui-api-system: machine user (service account) for Flui API → IAM_OWNER
+            # NOTE: Machine and Human are mutually exclusive — Machine takes precedence.
+            # Human block above is still needed for ZITADEL_FIRSTINSTANCE_ORG_HUMAN_* env vars
+            # but the actual user created depends on which block is non-empty at setup time.
             - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME
               value: "flui-api-system"
             - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME
               value: "Flui API System"
+            # ExpirationDate must be non-empty to trigger PAT generation — calculated by bootstrap script (today + 10y)
+            - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE
+              value: "${ZITADEL_PAT_EXPIRATION_DATE}"
             # PAT is written to the bootstrap PVC so a post-setup job can inject it into flui-secrets
             - name: ZITADEL_FIRSTINSTANCE_PATPATH
               value: "/bootstrap/flui-api-system.pat"

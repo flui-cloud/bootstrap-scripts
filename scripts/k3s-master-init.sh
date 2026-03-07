@@ -692,6 +692,10 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     fi
     export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
     export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
+    # PAT expiration: today + 10 years in RFC3339 format
+    ZITADEL_PAT_EXPIRATION_DATE=$(date -u -d "+10 years" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
+        || date -u -v+10y '+%Y-%m-%dT%H:%M:%SZ')
+    export ZITADEL_PAT_EXPIRATION_DATE
 
     # Create manifests directory for K3s auto-deploy
     MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
@@ -716,6 +720,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             export CLUSTER_ID SERVER_ID CLUSTER_NAME CLOUD_PROVIDER
             export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
             export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
+            export ZITADEL_PAT_EXPIRATION_DATE
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         else
             log "⚠️  envsubst not found, using sed for variable substitution..."
@@ -736,6 +741,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s/\${ZITADEL_ADMIN_EMAIL}/$ZITADEL_ADMIN_EMAIL/g" \
                 -e "s/\${ZITADEL_ADMIN_TEMP_PASSWORD}/$ZITADEL_ADMIN_TEMP_PASSWORD/g" \
                 -e "s/\${ZITADEL_AUDIENCE}/$ZITADEL_AUDIENCE/g" \
+                -e "s/\${ZITADEL_PAT_EXPIRATION_DATE}/$ZITADEL_PAT_EXPIRATION_DATE/g" \
                 "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         fi
 
