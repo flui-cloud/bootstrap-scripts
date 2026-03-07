@@ -692,10 +692,6 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     fi
     export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
     export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
-    # PAT expiration: today + 10 years in RFC3339 format
-    ZITADEL_PAT_EXPIRATION_DATE=$(date -u -d "+10 years" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
-        || date -u -v+10y '+%Y-%m-%dT%H:%M:%SZ')
-    export ZITADEL_PAT_EXPIRATION_DATE
 
     # Create manifests directory for K3s auto-deploy
     MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
@@ -706,7 +702,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "Deploying components: namespace, postgres, redis, prometheus, loki, grafana"
 
     # Download and apply manifests from GitHub
-    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-zitadel 13-zitadel-pat-inject 00a-traefik-config; do
+    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-zitadel 00a-traefik-config; do
         log "→ Downloading ${manifest}.yaml..."
 
         # Download manifest
@@ -720,7 +716,6 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             export CLUSTER_ID SERVER_ID CLUSTER_NAME CLOUD_PROVIDER
             export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
             export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
-            export ZITADEL_PAT_EXPIRATION_DATE
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         else
             log "⚠️  envsubst not found, using sed for variable substitution..."
@@ -741,7 +736,6 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s/\${ZITADEL_ADMIN_EMAIL}/$ZITADEL_ADMIN_EMAIL/g" \
                 -e "s/\${ZITADEL_ADMIN_TEMP_PASSWORD}/$ZITADEL_ADMIN_TEMP_PASSWORD/g" \
                 -e "s/\${ZITADEL_AUDIENCE}/$ZITADEL_AUDIENCE/g" \
-                -e "s/\${ZITADEL_PAT_EXPIRATION_DATE}/$ZITADEL_PAT_EXPIRATION_DATE/g" \
                 "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         fi
 
@@ -880,8 +874,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     if kubectl rollout status deployment/zitadel -n default --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
         log "✅ Zitadel API is ready"
         # flui-api-system PAT is written to the bootstrap PVC by Zitadel during start-from-init.
-        # The zitadel-pat-inject job (13-zitadel-pat-inject.yaml) waits for the file and
-        # injects it into flui-secrets automatically — no manual API calls needed here.
+        # It will be read and injected into flui-secrets when sync-auth-domain is called.
     else
         warn "Zitadel API did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"
     fi

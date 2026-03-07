@@ -159,10 +159,10 @@ spec:
               value: "flui-api-system"
             - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME
               value: "Flui API System"
-            # ExpirationDate must be non-empty to trigger PAT generation — calculated by bootstrap script (today + 10y)
+            # ExpirationDate must be non-empty to trigger PAT generation
             - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE
-              value: "${ZITADEL_PAT_EXPIRATION_DATE}"
-            # PAT is written to the bootstrap PVC so a post-setup job can inject it into flui-secrets
+              value: "2036-01-01T00:00:00Z"
+            # PAT is written to the bootstrap PVC; sync-auth-domain reads and injects it into flui-secrets
             - name: ZITADEL_FIRSTINSTANCE_PATPATH
               value: "/bootstrap/flui-api-system.pat"
             # Disable LoginV2 redirect — default is true in recent Zitadel versions.
