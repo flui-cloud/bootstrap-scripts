@@ -702,7 +702,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "Deploying components: namespace, postgres, redis, prometheus, loki, grafana"
 
     # Download and apply manifests from GitHub
-    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-zitadel 00a-traefik-config; do
+    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-zitadel 13-zitadel-pat-inject 00a-traefik-config; do
         log "→ Downloading ${manifest}.yaml..."
 
         # Download manifest
@@ -873,6 +873,9 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     update_health "deploying" "zitadel" ""
     if kubectl rollout status deployment/zitadel -n default --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
         log "✅ Zitadel API is ready"
+        # flui-api-system PAT is written to the bootstrap PVC by Zitadel during start-from-init.
+        # The zitadel-pat-inject job (13-zitadel-pat-inject.yaml) waits for the file and
+        # injects it into flui-secrets automatically — no manual API calls needed here.
     else
         warn "Zitadel API did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"
     fi

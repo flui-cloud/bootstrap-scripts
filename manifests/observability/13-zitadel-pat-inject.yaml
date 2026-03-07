@@ -1,0 +1,106 @@
+---
+# ServiceAccount + RBAC so the job can patch the flui-secrets Secret
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: zitadel-pat-injector
+  namespace: default
+  labels:
+    app: zitadel-pat-inject
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: zitadel-pat-injector
+  namespace: default
+  labels:
+    app: zitadel-pat-inject
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["flui-secrets"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["flui-api"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: zitadel-pat-injector
+  namespace: default
+  labels:
+    app: zitadel-pat-inject
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+subjects:
+  - kind: ServiceAccount
+    name: zitadel-pat-injector
+    namespace: default
+roleRef:
+  kind: Role
+  name: zitadel-pat-injector
+  apiGroup: rbac.authorization.k8s.io
+---
+# Job: waits for flui-api-system.pat to appear on the bootstrap PVC (written by Zitadel
+# during start-from-init) then injects its value into flui-secrets and restarts flui-api.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: zitadel-pat-inject
+  namespace: default
+  labels:
+    app: zitadel-pat-inject
+    app.kubernetes.io/name: zitadel-pat-inject
+    app.kubernetes.io/managed-by: flui-cloud
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: zitadel-pat-inject
+    spec:
+      enableServiceLinks: false
+      restartPolicy: OnFailure
+      serviceAccountName: zitadel-pat-injector
+      volumes:
+        - name: bootstrap
+          persistentVolumeClaim:
+            claimName: zitadel-bootstrap-pvc
+      containers:
+        - name: inject
+          image: bitnami/kubectl:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "→ Waiting for flui-api-system.pat on bootstrap PVC..."
+              until [ -f /bootstrap/flui-api-system.pat ]; do
+                sleep 5
+              done
+              PAT=$(cat /bootstrap/flui-api-system.pat | tr -d '\n')
+              if [ -z "$PAT" ]; then
+                echo "ERROR: flui-api-system.pat is empty"
+                exit 1
+              fi
+              echo "→ PAT found, injecting into flui-secrets..."
+              kubectl patch secret flui-secrets -n default \
+                --type merge \
+                -p "{\"stringData\":{\"ZITADEL_SERVICE_ACCOUNT_PAT\":\"$PAT\"}}"
+              echo "✅ ZITADEL_SERVICE_ACCOUNT_PAT saved to flui-secrets"
+              echo "→ Restarting flui-api to pick up the new secret..."
+              kubectl rollout restart deployment/flui-api -n default
+              echo "✅ flui-api restart triggered"
+          volumeMounts:
+            - name: bootstrap
+              mountPath: /bootstrap

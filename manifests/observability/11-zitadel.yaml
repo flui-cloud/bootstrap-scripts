@@ -69,6 +69,23 @@ data:
         DisableWatermark: true
         HideLoginNameSuffix: true
 ---
+# PVC shared between Zitadel (writes PAT) and the pat-inject job (reads PAT → flui-secrets)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: zitadel-bootstrap-pvc
+  namespace: default
+  labels:
+    app: zitadel
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Mi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -134,6 +151,14 @@ spec:
               value: "flui-admin"
             - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED
               value: "false"
+            # flui-api-system: machine user (service account) for Flui API → IAM_OWNER
+            - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME
+              value: "flui-api-system"
+            - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME
+              value: "Flui API System"
+            # PAT is written to the bootstrap PVC so a post-setup job can inject it into flui-secrets
+            - name: ZITADEL_FIRSTINSTANCE_PATPATH
+              value: "/bootstrap/flui-api-system.pat"
             # Disable LoginV2 redirect — default is true in recent Zitadel versions.
             - name: ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED
               value: "false"
@@ -141,6 +166,8 @@ spec:
             - name: config
               mountPath: /config
               readOnly: true
+            - name: bootstrap
+              mountPath: /bootstrap
           livenessProbe:
             httpGet:
               path: /debug/healthz
@@ -168,6 +195,9 @@ spec:
         - name: config
           configMap:
             name: zitadel-config
+        - name: bootstrap
+          persistentVolumeClaim:
+            claimName: zitadel-bootstrap-pvc
 ---
 apiVersion: v1
 kind: Service
