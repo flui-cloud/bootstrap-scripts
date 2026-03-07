@@ -15,8 +15,9 @@ data:
     PAT=$(cat /bootstrap/admin.pat | tr -d '\n')
 
     echo "→ Searching for flui-admin user..."
-    RESPONSE=$(curl -sf -X POST "$ZITADEL_URL/v2/users/_search" \
+    RESPONSE=$(curl -sf -X POST "$ZITADEL_URL/v2/users" \
       -H "Authorization: Bearer $PAT" \
+      -H "Host: $ZITADEL_DOMAIN" \
       -H "Content-Type: application/json" \
       -d '{"queries":[{"userNameQuery":{"userName":"flui-admin","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
 
@@ -30,6 +31,7 @@ data:
     echo "→ Setting password without changeRequired for user $USER_ID..."
     curl -sf -X POST "$ZITADEL_URL/v2/users/$USER_ID/password" \
       -H "Authorization: Bearer $PAT" \
+      -H "Host: $ZITADEL_DOMAIN" \
       -H "Content-Type: application/json" \
       -d "{\"newPassword\":{\"password\":\"$ZITADEL_ADMIN_TEMP_PASSWORD\",\"changeRequired\":false}}"
 
@@ -89,6 +91,8 @@ spec:
                 secretKeyRef:
                   name: zitadel-secrets
                   key: admin-temp-password
+            - name: ZITADEL_DOMAIN
+              value: "${ZITADEL_DOMAIN}"
           volumeMounts:
             - name: bootstrap
               mountPath: /bootstrap

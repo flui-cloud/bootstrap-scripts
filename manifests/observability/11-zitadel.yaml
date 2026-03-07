@@ -131,6 +131,8 @@ spec:
                 secretKeyRef:
                   name: zitadel-secrets
                   key: admin-temp-password
+            - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME
+              value: "flui-admin"
             - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD_CHANGEREQUIRED
               value: "false"
             # Login client service account: API writes the PAT to /zitadel/bootstrap/login-client.pat
