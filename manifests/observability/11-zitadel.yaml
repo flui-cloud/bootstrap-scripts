@@ -134,6 +134,9 @@ spec:
               value: "flui-admin"
             - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED
               value: "false"
+            # Disable LoginV2 redirect — default is true in recent Zitadel versions.
+            - name: ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED
+              value: "false"
           volumeMounts:
             - name: config
               mountPath: /config
