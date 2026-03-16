@@ -17,23 +17,31 @@ K3S_VERSION="${K3S_VERSION:-v1.28.4+k3s1}"
 DEPLOY_OBSERVABILITY_STACK="${DEPLOY_OBSERVABILITY_STACK:-false}"
 MANIFESTS_BASE_URL="${MANIFESTS_BASE_URL:-https://raw.githubusercontent.com/flui-cloud/bootstrap-scripts/master/manifests}"
 
+# Auth mode: "local" (built-in JWT, no Zitadel) or "oidc" (Zitadel/external OIDC provider)
+AUTH_MODE="${AUTH_MODE:-local}"
+
 # Multi-cluster observability configuration
 OBSERVABILITY_CLUSTER_IP="${OBSERVABILITY_CLUSTER_IP:-}"
 DEPLOY_MONITORING_AGENT="${DEPLOY_MONITORING_AGENT:-false}"
 
 # Observability stack passwords
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD}"
-REDIS_PASSWORD="${REDIS_PASSWORD}"
-GRAFANA_PASSWORD="${GRAFANA_PASSWORD}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-changeme_postgres}"
+REDIS_PASSWORD="${REDIS_PASSWORD:-changeme_redis}"
+GRAFANA_PASSWORD="${GRAFANA_PASSWORD:-changeme_grafana}"
 
-# Zitadel identity provider configuration (values must be provided by CLI, never generated here)
-ZITADEL_MASTERKEY="${ZITADEL_MASTERKEY}"
-ZITADEL_DB_ADMIN_PASSWORD="${ZITADEL_DB_ADMIN_PASSWORD}"
-ZITADEL_DB_USER_PASSWORD="${ZITADEL_DB_USER_PASSWORD}"
+# Zitadel identity provider configuration (required only when AUTH_MODE=oidc)
+ZITADEL_MASTERKEY="${ZITADEL_MASTERKEY:-}"
+ZITADEL_DB_ADMIN_PASSWORD="${ZITADEL_DB_ADMIN_PASSWORD:-}"
+ZITADEL_DB_USER_PASSWORD="${ZITADEL_DB_USER_PASSWORD:-}"
 ZITADEL_DOMAIN="${ZITADEL_DOMAIN:-}"
 ZITADEL_ADMIN_EMAIL="${ZITADEL_ADMIN_EMAIL:-admin@flui.cloud}"
 ZITADEL_ADMIN_TEMP_PASSWORD="${ZITADEL_ADMIN_TEMP_PASSWORD:-ChangeMe123!}"
 ZITADEL_AUDIENCE="${ZITADEL_AUDIENCE:-}"
+
+# Local auth configuration (required only when AUTH_MODE=local)
+JWT_SECRET="${JWT_SECRET:-}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-}"
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
 
 LOG_FILE="/var/log/k3s-master-init.log"
 HEALTH_FILE="/var/log/observability-health.json"
@@ -677,21 +685,30 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
 
     update_health "deploying" "observability-stack" ""
 
-    # Validate Zitadel secrets were provided by CLI (must never be empty)
-    if [ -z "$ZITADEL_MASTERKEY" ] || [ -z "$ZITADEL_DB_ADMIN_PASSWORD" ] || [ -z "$ZITADEL_DB_USER_PASSWORD" ]; then
-        error "ZITADEL_MASTERKEY, ZITADEL_DB_ADMIN_PASSWORD, ZITADEL_DB_USER_PASSWORD must be set by the CLI before bootstrap"
+    log "Auth mode: $AUTH_MODE"
+
+    # Validate secrets based on auth mode
+    if [ "$AUTH_MODE" = "oidc" ]; then
+        if [ -z "$ZITADEL_MASTERKEY" ] || [ -z "$ZITADEL_DB_ADMIN_PASSWORD" ] || [ -z "$ZITADEL_DB_USER_PASSWORD" ]; then
+            error "AUTH_MODE=oidc requires ZITADEL_MASTERKEY, ZITADEL_DB_ADMIN_PASSWORD, ZITADEL_DB_USER_PASSWORD"
+        fi
+    else
+        if [ -z "$JWT_SECRET" ]; then
+            error "AUTH_MODE=local requires JWT_SECRET to be set"
+        fi
     fi
 
     # Get primary IP for NodePort access
     PRIMARY_IP=$(hostname -I | awk '{print $1}')
     export MASTER_IP="$PRIMARY_IP"
-    # Default Zitadel domain to nip.io-based domain if not explicitly set
-    if [ -z "$ZITADEL_DOMAIN" ]; then
+    # Default Zitadel domain to nip.io-based domain if not explicitly set (oidc mode only)
+    if [ "$AUTH_MODE" = "oidc" ] && [ -z "$ZITADEL_DOMAIN" ]; then
         ZITADEL_DOMAIN="auth.${PRIMARY_IP}.nip.io"
         log "ZITADEL_DOMAIN not set, defaulting to: $ZITADEL_DOMAIN"
     fi
     export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
     export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
+    export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD
 
     # Create manifests directory for K3s auto-deploy
     MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
@@ -701,8 +718,17 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "Downloading manifests from: $MANIFESTS_BASE_URL/observability/"
     log "Deploying components: namespace, postgres, redis, prometheus, loki, grafana"
 
+    # Build manifest list — exclude Zitadel when using local auth mode
+    MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 00a-traefik-config"
+    if [ "$AUTH_MODE" = "oidc" ]; then
+        MANIFESTS="$MANIFESTS 11-zitadel"
+        log "AUTH_MODE=oidc: Zitadel will be deployed"
+    else
+        log "AUTH_MODE=local: Zitadel will NOT be deployed (using built-in JWT auth)"
+    fi
+
     # Download and apply manifests from GitHub
-    for manifest in 00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-zitadel 00a-traefik-config; do
+    for manifest in $MANIFESTS; do
         log "→ Downloading ${manifest}.yaml..."
 
         # Download manifest
@@ -716,6 +742,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             export CLUSTER_ID SERVER_ID CLUSTER_NAME CLOUD_PROVIDER
             export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
             export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
+            export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         else
             log "⚠️  envsubst not found, using sed for variable substitution..."
@@ -736,6 +763,10 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s/\${ZITADEL_ADMIN_EMAIL}/$ZITADEL_ADMIN_EMAIL/g" \
                 -e "s/\${ZITADEL_ADMIN_TEMP_PASSWORD}/$ZITADEL_ADMIN_TEMP_PASSWORD/g" \
                 -e "s/\${ZITADEL_AUDIENCE}/$ZITADEL_AUDIENCE/g" \
+                -e "s/\${AUTH_MODE}/$AUTH_MODE/g" \
+                -e "s|\${JWT_SECRET}|$JWT_SECRET|g" \
+                -e "s/\${ADMIN_EMAIL}/$ADMIN_EMAIL/g" \
+                -e "s|\${ADMIN_PASSWORD}|$ADMIN_PASSWORD|g" \
                 "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         fi
 
@@ -771,27 +802,29 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         error "$error_msg"
     fi
 
-    # Create Zitadel database and users on the shared PostgreSQL instance
-    log "→ Creating Zitadel database and users on PostgreSQL..."
-    kubectl exec -n default statefulset/postgres -- \
-        psql -U fluicloud -c "CREATE DATABASE zitadel;" 2>/dev/null || log "  (zitadel database already exists)"
-    kubectl exec -n default statefulset/postgres -- \
-        psql -U fluicloud -c "CREATE USER zitadel_admin WITH CREATEDB CREATEROLE PASSWORD '${ZITADEL_DB_ADMIN_PASSWORD}';" 2>/dev/null || log "  (zitadel_admin user already exists)"
-    kubectl exec -n default statefulset/postgres -- \
-        psql -U fluicloud -c "ALTER USER zitadel_admin WITH CREATEDB CREATEROLE;" 2>/dev/null || true
-    kubectl exec -n default statefulset/postgres -- \
-        psql -U fluicloud -c "GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel_admin;" 2>/dev/null || true
-    kubectl exec -n default statefulset/postgres -- \
-        psql -U fluicloud -d zitadel -c "GRANT ALL ON SCHEMA public TO zitadel_admin;" 2>/dev/null || true
-    kubectl exec -n default statefulset/postgres -- \
-        psql -U fluicloud -d zitadel -c "ALTER DATABASE zitadel OWNER TO zitadel_admin;" 2>/dev/null || true
-    kubectl exec -n default statefulset/postgres -- \
-        psql -U fluicloud -c "CREATE USER zitadel_user WITH PASSWORD '${ZITADEL_DB_USER_PASSWORD}';" 2>/dev/null || log "  (zitadel_user user already exists)"
-    kubectl exec -n default statefulset/postgres -- \
-        psql -U fluicloud -c "GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel_user;" 2>/dev/null || true
-    kubectl exec -n default statefulset/postgres -- \
-        psql -U fluicloud -d zitadel -c "GRANT ALL ON SCHEMA public TO zitadel_user;" 2>/dev/null || true
-    log "✅ Zitadel database and users created"
+    # Create Zitadel database and users on the shared PostgreSQL instance (oidc mode only)
+    if [ "$AUTH_MODE" = "oidc" ]; then
+        log "→ Creating Zitadel database and users on PostgreSQL..."
+        kubectl exec -n default statefulset/postgres -- \
+            psql -U fluicloud -c "CREATE DATABASE zitadel;" 2>/dev/null || log "  (zitadel database already exists)"
+        kubectl exec -n default statefulset/postgres -- \
+            psql -U fluicloud -c "CREATE USER zitadel_admin WITH CREATEDB CREATEROLE PASSWORD '${ZITADEL_DB_ADMIN_PASSWORD}';" 2>/dev/null || log "  (zitadel_admin user already exists)"
+        kubectl exec -n default statefulset/postgres -- \
+            psql -U fluicloud -c "ALTER USER zitadel_admin WITH CREATEDB CREATEROLE;" 2>/dev/null || true
+        kubectl exec -n default statefulset/postgres -- \
+            psql -U fluicloud -c "GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel_admin;" 2>/dev/null || true
+        kubectl exec -n default statefulset/postgres -- \
+            psql -U fluicloud -d zitadel -c "GRANT ALL ON SCHEMA public TO zitadel_admin;" 2>/dev/null || true
+        kubectl exec -n default statefulset/postgres -- \
+            psql -U fluicloud -d zitadel -c "ALTER DATABASE zitadel OWNER TO zitadel_admin;" 2>/dev/null || true
+        kubectl exec -n default statefulset/postgres -- \
+            psql -U fluicloud -c "CREATE USER zitadel_user WITH PASSWORD '${ZITADEL_DB_USER_PASSWORD}';" 2>/dev/null || log "  (zitadel_user user already exists)"
+        kubectl exec -n default statefulset/postgres -- \
+            psql -U fluicloud -c "GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel_user;" 2>/dev/null || true
+        kubectl exec -n default statefulset/postgres -- \
+            psql -U fluicloud -d zitadel -c "GRANT ALL ON SCHEMA public TO zitadel_user;" 2>/dev/null || true
+        log "✅ Zitadel database and users created"
+    fi
 
     # Wait for Redis
     log "→ Waiting for Redis..."
@@ -868,17 +901,18 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         warn "Flui Web did not become ready within ${COMPONENT_TIMEOUT}s (non-critical, image may not be available yet)"
     fi
 
-    # Wait for Zitadel API deployment (uses start-from-init — no separate jobs)
-    log "→ Waiting for Zitadel API deployment (start-from-init runs init+setup+start)..."
-    update_health "deploying" "zitadel" ""
-    if kubectl rollout status deployment/zitadel -n default --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
-        log "✅ Zitadel API is ready"
-        # flui-api-system PAT is written to the bootstrap PVC by Zitadel during start-from-init.
-        # It will be read and injected into flui-secrets when sync-auth-domain is called.
-    else
-        warn "Zitadel API did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"
+    # Wait for Zitadel API deployment (oidc mode only)
+    if [ "$AUTH_MODE" = "oidc" ]; then
+        log "→ Waiting for Zitadel API deployment (start-from-init runs init+setup+start)..."
+        update_health "deploying" "zitadel" ""
+        if kubectl rollout status deployment/zitadel -n default --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+            log "✅ Zitadel API is ready"
+            # flui-api-system PAT is written to the bootstrap PVC by Zitadel during start-from-init.
+            # It will be read and injected into flui-secrets when sync-auth-domain is called.
+        else
+            warn "Zitadel API did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"
+        fi
     fi
-
 
     log ""
     log "✅ All observability stack components are ready!"
@@ -895,7 +929,11 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "Loki:       http://$PRIMARY_IP:30100"
     log "Flui API:   http://$PRIMARY_IP:30080"
     log "Flui Web:   http://$PRIMARY_IP:30880"
-    log "Zitadel:    https://$ZITADEL_DOMAIN (admin: $ZITADEL_ADMIN_EMAIL)"
+    if [ "$AUTH_MODE" = "oidc" ]; then
+        log "Zitadel:    https://$ZITADEL_DOMAIN (admin: $ZITADEL_ADMIN_EMAIL)"
+    else
+        log "Auth:       Local JWT (AUTH_MODE=local)"
+    fi
     log "Ingress:    http://$PRIMARY_IP:80 (Traefik)"
     log ""
 
