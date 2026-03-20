@@ -892,6 +892,20 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         warn "Flui API did not become ready within ${COMPONENT_TIMEOUT}s (non-critical, image may not be available yet)"
     fi
 
+    # Inject kubeconfig into flui-secrets so BootstrapSeeder can discover system apps
+    log "→ Injecting kubeconfig into flui-secrets..."
+    KUBECONFIG_B64=$(base64 -w 0 /etc/rancher/k3s/k3s.yaml)
+    if kubectl patch secret flui-secrets -n default \
+        --type='json' \
+        -p="[{\"op\":\"add\",\"path\":\"/data/KUBECONFIG_CONTENT\",\"value\":\"${KUBECONFIG_B64}\"}]" 2>/dev/null; then
+        log "✅ Kubeconfig injected into flui-secrets"
+        # Restart flui-api so BootstrapSeeder re-runs with KUBECONFIG available
+        kubectl rollout restart deployment/flui-api -n default 2>/dev/null || true
+        log "✅ Flui API restarted to pick up kubeconfig"
+    else
+        warn "Failed to inject kubeconfig into flui-secrets (non-critical)"
+    fi
+
     # Wait for Flui Web
     log "→ Waiting for Flui Web..."
     update_health "deploying" "flui-web" ""
