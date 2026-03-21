@@ -645,7 +645,7 @@ else
         log "Installing cert-manager-webhook-hetzner"
         log "=========================================="
 
-        HETZNER_WEBHOOK_VERSION="${HETZNER_WEBHOOK_VERSION:-0.4.1}"
+        HETZNER_WEBHOOK_VERSION="${HETZNER_WEBHOOK_VERSION:-1.4.2}"
         log "cert-manager-webhook-hetzner version: $HETZNER_WEBHOOK_VERSION"
 
         if ! command -v helm &>/dev/null; then
@@ -666,6 +666,7 @@ else
             --namespace cert-manager \
             --version "${HETZNER_WEBHOOK_VERSION}" \
             --set groupName=acme.milas.dev \
+            --set secretName=hetzner-secret \
             --wait \
             --timeout 120s; then
 
