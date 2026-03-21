@@ -666,7 +666,6 @@ else
             --namespace cert-manager \
             --version "${HETZNER_WEBHOOK_VERSION}" \
             --set groupName=acme.milas.dev \
-            --set secretName=hetzner-secret \
             --wait \
             --timeout 120s; then
 
