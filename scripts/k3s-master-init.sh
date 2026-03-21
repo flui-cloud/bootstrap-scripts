@@ -637,40 +637,44 @@ else
     log "✅ cert-manager installation completed"
 
     # ============================================================
-    # STEP 11b: Install cert-manager-webhook-hetzner
+    # STEP 11b: Install cert-manager-webhook-hetzner (Hetzner only)
     # ============================================================
-    log ""
-    log "=========================================="
-    log "Installing cert-manager-webhook-hetzner"
-    log "=========================================="
+    if [ "$CLOUD_PROVIDER" = "hetzner" ]; then
+        log ""
+        log "=========================================="
+        log "Installing cert-manager-webhook-hetzner"
+        log "=========================================="
 
-    HETZNER_WEBHOOK_VERSION="${HETZNER_WEBHOOK_VERSION:-0.4.1}"
-    log "cert-manager-webhook-hetzner version: $HETZNER_WEBHOOK_VERSION"
+        HETZNER_WEBHOOK_VERSION="${HETZNER_WEBHOOK_VERSION:-0.4.1}"
+        log "cert-manager-webhook-hetzner version: $HETZNER_WEBHOOK_VERSION"
 
-    if ! command -v helm &>/dev/null; then
-        log "→ Installing Helm..."
-        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-    fi
+        if ! command -v helm &>/dev/null; then
+            log "→ Installing Helm..."
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        fi
 
-    if helm repo list 2>/dev/null | grep -q cert-manager-webhook-hetzner; then
-        helm repo update cert-manager-webhook-hetzner
+        if helm repo list 2>/dev/null | grep -q cert-manager-webhook-hetzner; then
+            helm repo update cert-manager-webhook-hetzner
+        else
+            helm repo add cert-manager-webhook-hetzner \
+                https://vadimkim.github.io/cert-manager-webhook-hetzner
+            helm repo update cert-manager-webhook-hetzner
+        fi
+
+        if helm upgrade --install cert-manager-webhook-hetzner \
+            cert-manager-webhook-hetzner/cert-manager-webhook-hetzner \
+            --namespace cert-manager \
+            --version "${HETZNER_WEBHOOK_VERSION}" \
+            --set groupName=acme.milas.dev \
+            --wait \
+            --timeout 120s; then
+
+            log "✅ cert-manager-webhook-hetzner installed"
+        else
+            warn "cert-manager-webhook-hetzner installation failed — DNS-01 wildcard certificates will not work"
+        fi
     else
-        helm repo add cert-manager-webhook-hetzner \
-            https://vadimkim.github.io/cert-manager-webhook-hetzner
-        helm repo update cert-manager-webhook-hetzner
-    fi
-
-    if helm upgrade --install cert-manager-webhook-hetzner \
-        cert-manager-webhook-hetzner/cert-manager-webhook-hetzner \
-        --namespace cert-manager \
-        --version "${HETZNER_WEBHOOK_VERSION}" \
-        --set groupName=acme.milas.dev \
-        --wait \
-        --timeout 120s; then
-
-        log "✅ cert-manager-webhook-hetzner installed"
-    else
-        warn "cert-manager-webhook-hetzner installation failed — DNS-01 wildcard certificates will not work"
+        log "Skipping cert-manager-webhook-hetzner (CLOUD_PROVIDER=$CLOUD_PROVIDER, not hetzner)"
     fi
 fi
 
