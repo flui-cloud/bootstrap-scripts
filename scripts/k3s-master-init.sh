@@ -645,7 +645,7 @@ else
         log "Installing cert-manager-webhook-hetzner"
         log "=========================================="
 
-        HETZNER_WEBHOOK_VERSION="${HETZNER_WEBHOOK_VERSION:-1.4.2}"
+        HETZNER_WEBHOOK_VERSION="${HETZNER_WEBHOOK_VERSION:-0.6.7}"
         log "cert-manager-webhook-hetzner version: $HETZNER_WEBHOOK_VERSION"
 
         if ! command -v helm &>/dev/null; then
@@ -653,19 +653,17 @@ else
             curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
         fi
 
-        if helm repo list 2>/dev/null | grep -q cert-manager-webhook-hetzner; then
-            helm repo update cert-manager-webhook-hetzner
+        if helm repo list 2>/dev/null | grep -q hcloud; then
+            helm repo update hcloud
         else
-            helm repo add cert-manager-webhook-hetzner \
-                https://vadimkim.github.io/cert-manager-webhook-hetzner
-            helm repo update cert-manager-webhook-hetzner
+            helm repo add hcloud https://charts.hetzner.cloud
+            helm repo update hcloud
         fi
 
         if helm upgrade --install cert-manager-webhook-hetzner \
-            cert-manager-webhook-hetzner/cert-manager-webhook-hetzner \
+            hcloud/cert-manager-webhook-hetzner \
             --namespace cert-manager \
             --version "${HETZNER_WEBHOOK_VERSION}" \
-            --set groupName=acme.milas.dev \
             --wait \
             --timeout 120s; then
 
