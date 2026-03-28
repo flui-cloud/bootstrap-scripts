@@ -795,7 +795,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     # Wait for Postgres
     log "→ Waiting for PostgreSQL..."
     update_health "deploying" "postgres" ""
-    if kubectl wait --for=condition=ready pod -l app=postgres --timeout=${POSTGRES_TIMEOUT}s 2>/dev/null; then
+    if kubectl wait --for=condition=ready pod -l app=postgres -n flui-system --timeout=${POSTGRES_TIMEOUT}s 2>/dev/null; then
         log "✅ PostgreSQL is ready"
     else
         error_msg="PostgreSQL failed to become ready within ${POSTGRES_TIMEOUT}s"
@@ -807,23 +807,23 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     # Create Zitadel database and users on the shared PostgreSQL instance (oidc mode only)
     if [ "$AUTH_MODE" = "oidc" ]; then
         log "→ Creating Zitadel database and users on PostgreSQL..."
-        kubectl exec -n default statefulset/postgres -- \
+        kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -c "CREATE DATABASE zitadel;" 2>/dev/null || log "  (zitadel database already exists)"
-        kubectl exec -n default statefulset/postgres -- \
+        kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -c "CREATE USER zitadel_admin WITH CREATEDB CREATEROLE PASSWORD '${ZITADEL_DB_ADMIN_PASSWORD}';" 2>/dev/null || log "  (zitadel_admin user already exists)"
-        kubectl exec -n default statefulset/postgres -- \
+        kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -c "ALTER USER zitadel_admin WITH CREATEDB CREATEROLE;" 2>/dev/null || true
-        kubectl exec -n default statefulset/postgres -- \
+        kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -c "GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel_admin;" 2>/dev/null || true
-        kubectl exec -n default statefulset/postgres -- \
+        kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -d zitadel -c "GRANT ALL ON SCHEMA public TO zitadel_admin;" 2>/dev/null || true
-        kubectl exec -n default statefulset/postgres -- \
+        kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -d zitadel -c "ALTER DATABASE zitadel OWNER TO zitadel_admin;" 2>/dev/null || true
-        kubectl exec -n default statefulset/postgres -- \
+        kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -c "CREATE USER zitadel_user WITH PASSWORD '${ZITADEL_DB_USER_PASSWORD}';" 2>/dev/null || log "  (zitadel_user user already exists)"
-        kubectl exec -n default statefulset/postgres -- \
+        kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -c "GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel_user;" 2>/dev/null || true
-        kubectl exec -n default statefulset/postgres -- \
+        kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -d zitadel -c "GRANT ALL ON SCHEMA public TO zitadel_user;" 2>/dev/null || true
         log "✅ Zitadel database and users created"
     fi
@@ -831,7 +831,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     # Wait for Redis
     log "→ Waiting for Redis..."
     update_health "deploying" "redis" ""
-    if kubectl wait --for=condition=ready pod -l app=redis --timeout=${REDIS_TIMEOUT}s 2>/dev/null; then
+    if kubectl wait --for=condition=ready pod -l app=redis -n flui-system --timeout=${REDIS_TIMEOUT}s 2>/dev/null; then
         log "✅ Redis is ready"
     else
         error_msg="Redis failed to become ready within ${REDIS_TIMEOUT}s"
@@ -843,7 +843,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     # Wait for Prometheus
     log "→ Waiting for Prometheus..."
     update_health "deploying" "prometheus" ""
-    if kubectl wait --for=condition=ready pod -l app=prometheus --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
         log "✅ Prometheus is ready"
     else
         error_msg="Prometheus failed to become ready within ${COMPONENT_TIMEOUT}s"
@@ -855,7 +855,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     # Wait for kube-state-metrics
     log "→ Waiting for kube-state-metrics..."
     update_health "deploying" "kube-state-metrics" ""
-    if kubectl wait --for=condition=ready pod -l app=kube-state-metrics --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+    if kubectl wait --for=condition=ready pod -l app=kube-state-metrics -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
         log "✅ kube-state-metrics is ready"
     else
         warn "kube-state-metrics did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"
@@ -864,7 +864,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     # Wait for Loki
     log "→ Waiting for Loki..."
     update_health "deploying" "loki" ""
-    if kubectl wait --for=condition=ready pod -l app=loki --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+    if kubectl wait --for=condition=ready pod -l app=loki -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
         log "✅ Loki is ready"
     else
         error_msg="Loki failed to become ready within ${COMPONENT_TIMEOUT}s"
@@ -876,7 +876,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     # Wait for Grafana
     log "→ Waiting for Grafana..."
     update_health "deploying" "grafana" ""
-    if kubectl wait --for=condition=ready pod -l app=grafana --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+    if kubectl wait --for=condition=ready pod -l app=grafana -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
         log "✅ Grafana is ready"
     else
         error_msg="Grafana failed to become ready within ${COMPONENT_TIMEOUT}s"
@@ -888,7 +888,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     # Wait for Flui API
     log "→ Waiting for Flui API..."
     update_health "deploying" "flui-api" ""
-    if kubectl wait --for=condition=ready pod -l app=flui-api --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+    if kubectl wait --for=condition=ready pod -l app=flui-api -n flui-system --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
         log "✅ Flui API is ready"
     else
         warn "Flui API did not become ready within ${COMPONENT_TIMEOUT}s (non-critical, image may not be available yet)"
@@ -897,12 +897,12 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     # Inject kubeconfig into flui-secrets so BootstrapSeeder can discover system apps
     log "→ Injecting kubeconfig into flui-secrets..."
     KUBECONFIG_B64=$(base64 -w 0 /etc/rancher/k3s/k3s.yaml)
-    if kubectl patch secret flui-secrets -n default \
+    if kubectl patch secret flui-secrets -n flui-system \
         --type='json' \
         -p="[{\"op\":\"add\",\"path\":\"/data/KUBECONFIG_CONTENT\",\"value\":\"${KUBECONFIG_B64}\"}]" 2>/dev/null; then
         log "✅ Kubeconfig injected into flui-secrets"
         # Restart flui-api so BootstrapSeeder re-runs with KUBECONFIG available
-        kubectl rollout restart deployment/flui-api -n default 2>/dev/null || true
+        kubectl rollout restart deployment/flui-api -n flui-system 2>/dev/null || true
         log "✅ Flui API restarted to pick up kubeconfig"
     else
         warn "Failed to inject kubeconfig into flui-secrets (non-critical)"
@@ -911,7 +911,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     # Wait for Flui Web
     log "→ Waiting for Flui Web..."
     update_health "deploying" "flui-web" ""
-    if kubectl wait --for=condition=ready pod -l app=flui-web --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+    if kubectl wait --for=condition=ready pod -l app=flui-web -n flui-system --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
         log "✅ Flui Web is ready"
     else
         warn "Flui Web did not become ready within ${COMPONENT_TIMEOUT}s (non-critical, image may not be available yet)"
@@ -921,7 +921,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     if [ "$AUTH_MODE" = "oidc" ]; then
         log "→ Waiting for Zitadel API deployment (start-from-init runs init+setup+start)..."
         update_health "deploying" "zitadel" ""
-        if kubectl rollout status deployment/zitadel -n default --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
+        if kubectl rollout status deployment/zitadel -n flui-system --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null; then
             log "✅ Zitadel API is ready"
             # flui-api-system PAT is written to the bootstrap PVC by Zitadel during start-from-init.
             # It will be read and injected into flui-secrets when sync-auth-domain is called.
