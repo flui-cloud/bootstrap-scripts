@@ -389,15 +389,19 @@ matches = parse_regex!(.file, r'/var/log/pods/(?P<namespace>[^_]+)_(?P<pod>[^_]+
 .container = matches.container
 .node = get_hostname!()
 
-# Extract app name from pod name (deployment creates pods like: <app>-<replicaset>-<random>)
-# Example: flui-api-846c4f5dcc-tdgbv -> flui-api
+# Extract app name from pod name by stripping the last 2 K8s-generated hash segments.
+# K8s Deployment pods always follow: {deployment-name}-{replicaset-hash}-{pod-hash}
+# ReplicaSet hash and pod hash never contain hyphens, so splitting on "-" and
+# dropping the last 2 parts reliably recovers the deployment name for any slug length.
+# Examples:
+#   wordpress-kbhz50-7d9f8b5c6-xzqpr  -> wordpress-kbhz50
+#   flui-api-846c4f5dcc-tdgbv          -> flui-api
+#   nginx-5d7df6-xzqpr                 -> nginx
+#   postgres-0  (StatefulSet ordinal)  -> postgres
 app_parts = split(matches.pod, "-")
-.app = app_parts[0]
-
-# If pod has a second segment without numbers, include it (e.g., "flui-api" vs just "api")
-if length(app_parts) > 1 && !match(string!(app_parts[1]), r'\d') {
-  .app = join!([app_parts[0], app_parts[1]], "-")
-}
+n = length(app_parts)
+app_end = if n > 2 { n - 2 } else { 1 }
+.app = join!(slice!(app_parts, 0, app_end), "-")
 
 # Parse Kubernetes log format: <timestamp> <stream> <flags> <message>
 # Example: "2026-02-23T05:50:32.04784505Z stderr F Message: Unsuccessful HTTP Request"
