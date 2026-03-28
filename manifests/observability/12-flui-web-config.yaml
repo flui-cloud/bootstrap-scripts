@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: flui-web-config
-  namespace: default
+  namespace: flui-system
   labels:
     app: flui-web
     app.kubernetes.io/name: flui-web

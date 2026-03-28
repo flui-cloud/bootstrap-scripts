@@ -1,7 +1,26 @@
 apiVersion: v1
 kind: Namespace
 metadata:
+  name: flui-system
+  labels:
+    name: flui-system
+    managed-by: "flui-cloud"
+    flui.cloud/tier: "platform"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flui-observability
+  labels:
+    name: flui-observability
+    managed-by: "flui-cloud"
+    flui.cloud/tier: "observability"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
   name: build-agents
   labels:
     name: build-agents
     managed-by: "flui-cloud"
+    flui.cloud/tier: "ci"

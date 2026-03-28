@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: flui-api
-  namespace: default
+  namespace: flui-system
   labels:
     app: flui-api
     app.kubernetes.io/name: flui-api
@@ -25,7 +25,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: flui-api
-  namespace: default
+  namespace: flui-system
   labels:
     app: flui-api
     app.kubernetes.io/name: flui-api

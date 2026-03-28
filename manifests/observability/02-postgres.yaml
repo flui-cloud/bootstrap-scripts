@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgres
-  namespace: default
+  namespace: flui-system
   labels:
     app: postgres
     app.kubernetes.io/name: postgres
@@ -25,7 +25,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-data
-  namespace: default
+  namespace: flui-system
   labels:
     app: postgres
     app.kubernetes.io/name: postgres
@@ -47,7 +47,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
-  namespace: default
+  namespace: flui-system
   labels:
     app: postgres
     app.kubernetes.io/name: postgres
