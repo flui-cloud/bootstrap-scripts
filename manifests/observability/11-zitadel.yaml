@@ -43,7 +43,7 @@ data:
 
     Database:
       postgres:
-        Host: postgres.default.svc.cluster.local
+        Host: postgres.flui-system.svc.cluster.local
         Port: 5432
         Database: zitadel
         User:
