@@ -19,6 +19,6 @@ data:
       "apiUrl": "http://${MASTER_IP}:30080",
       "wsUrl": "ws://${MASTER_IP}:30080",
       "authMode": "${AUTH_MODE}",
-      "oidcIssuer": "https://${ZITADEL_DOMAIN}",
-      "oidcClientId": "${ZITADEL_AUDIENCE}"
+      "oidcIssuer": "${OIDC_ISSUER}",
+      "oidcClientId": "${OIDC_AUDIENCE}"
     }

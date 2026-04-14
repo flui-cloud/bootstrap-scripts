@@ -708,8 +708,20 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         ZITADEL_DOMAIN="auth.${PRIMARY_IP}.nip.io"
         log "ZITADEL_DOMAIN not set, defaulting to: $ZITADEL_DOMAIN"
     fi
+    # Resolve OIDC env vars based on AUTH_MODE.
+    # OIDC mode uses the in-cluster Zitadel Service URL for JWKS (stable, no TLS).
+    if [ "$AUTH_MODE" = "oidc" ]; then
+        OIDC_ISSUER="https://${ZITADEL_DOMAIN}"
+        OIDC_JWKS_URI="http://zitadel.flui-system.svc.cluster.local:8080/oauth/v2/keys"
+        OIDC_AUDIENCE="${ZITADEL_AUDIENCE}"
+    else
+        OIDC_ISSUER=""
+        OIDC_JWKS_URI=""
+        OIDC_AUDIENCE=""
+    fi
     export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
     export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
+    export OIDC_ISSUER OIDC_JWKS_URI OIDC_AUDIENCE
     export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD
 
     # Create manifests directory for K3s auto-deploy
@@ -744,6 +756,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             export CLUSTER_ID SERVER_ID CLUSTER_NAME CLOUD_PROVIDER
             export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
             export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
+            export OIDC_ISSUER OIDC_JWKS_URI OIDC_AUDIENCE
             export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         else
@@ -762,6 +775,9 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s/\${ZITADEL_DB_ADMIN_PASSWORD}/$ZITADEL_DB_ADMIN_PASSWORD/g" \
                 -e "s/\${ZITADEL_DB_USER_PASSWORD}/$ZITADEL_DB_USER_PASSWORD/g" \
                 -e "s/\${ZITADEL_DOMAIN}/$ZITADEL_DOMAIN/g" \
+                -e "s|\${OIDC_ISSUER}|$OIDC_ISSUER|g" \
+                -e "s|\${OIDC_JWKS_URI}|$OIDC_JWKS_URI|g" \
+                -e "s/\${OIDC_AUDIENCE}/$OIDC_AUDIENCE/g" \
                 -e "s/\${ZITADEL_ADMIN_EMAIL}/$ZITADEL_ADMIN_EMAIL/g" \
                 -e "s/\${ZITADEL_ADMIN_TEMP_PASSWORD}/$ZITADEL_ADMIN_TEMP_PASSWORD/g" \
                 -e "s/\${ZITADEL_AUDIENCE}/$ZITADEL_AUDIENCE/g" \

@@ -152,9 +152,6 @@ spec:
             - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED
               value: "false"
             # flui-api-system: machine user (service account) for Flui API → IAM_OWNER
-            # NOTE: Machine and Human are mutually exclusive — Machine takes precedence.
-            # Human block above is still needed for ZITADEL_FIRSTINSTANCE_ORG_HUMAN_* env vars
-            # but the actual user created depends on which block is non-empty at setup time.
             - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME
               value: "flui-api-system"
             - name: ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME
