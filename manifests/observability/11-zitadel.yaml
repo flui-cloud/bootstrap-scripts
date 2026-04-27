@@ -10,6 +10,7 @@ metadata:
     app.kubernetes.io/instance: zitadel
     flui.cloud/managed: "true"
     flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 type: Opaque
@@ -31,6 +32,7 @@ metadata:
     app.kubernetes.io/instance: zitadel
     flui.cloud/managed: "true"
     flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 data:
@@ -79,6 +81,7 @@ metadata:
     app: zitadel
     flui.cloud/managed: "true"
     flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
 spec:
   accessModes:
     - ReadWriteOnce
@@ -98,6 +101,7 @@ metadata:
     app.kubernetes.io/instance: zitadel
     flui.cloud/managed: "true"
     flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 spec:
@@ -214,6 +218,7 @@ metadata:
     app.kubernetes.io/instance: zitadel
     flui.cloud/managed: "true"
     flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 spec:
@@ -235,6 +240,7 @@ metadata:
     app: zitadel
     flui.cloud/managed: "true"
     flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
 spec:
   entryPoints:
     - websecure

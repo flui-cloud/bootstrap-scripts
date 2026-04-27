@@ -10,6 +10,7 @@ metadata:
     app.kubernetes.io/instance: grafana
     flui.cloud/managed: "true"
     flui.cloud/scope: "app"
+    flui.cloud/app-kind: "SYSTEM"
     flui.cloud/owner-kind: "application"
     flui.cloud/owner-id: "grafana"
     flui.cloud/app-slug: "grafana"

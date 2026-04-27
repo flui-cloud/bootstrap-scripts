@@ -90,6 +90,7 @@ metadata:
     app.kubernetes.io/instance: loki
     flui.cloud/managed: "true"
     flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 spec:
@@ -113,6 +114,7 @@ metadata:
     app.kubernetes.io/instance: loki
     flui.cloud/managed: "true"
     flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
     cluster: flui-observability
