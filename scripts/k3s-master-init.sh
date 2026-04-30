@@ -804,7 +804,11 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         else
             chmod +x /tmp/setup-zitadel-oidc.sh
             (
-                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for Zitadel deployment..."
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for flui-system namespace..."
+                until kubectl get namespace flui-system >/dev/null 2>&1; do sleep 2; done
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for zitadel deployment to exist..."
+                until kubectl get deployment zitadel -n flui-system >/dev/null 2>&1; do sleep 2; done
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for Zitadel deployment Available..."
                 kubectl wait --for=condition=Available deployment/zitadel -n flui-system --timeout=900s
                 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for zitadel-bootstrap-pvc..."
                 until kubectl get pvc zitadel-bootstrap-pvc -n flui-system >/dev/null 2>&1; do sleep 2; done

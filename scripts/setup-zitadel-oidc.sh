@@ -75,7 +75,8 @@ PAT_RAW=$(kubectl run pat-reader --rm -i --restart=Never \
       }]
     }
   }' 2>&1 || true)
-PAT=$(echo "$PAT_RAW" | grep -oE '^[A-Za-z0-9_-]{20,}' | head -1)
+# PAT is a JOSE token: header.payload.signature (base64url segments joined by '.')
+PAT=$(echo "$PAT_RAW" | grep -oE '[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' | head -1)
 [ -z "$PAT" ] && error "Could not read PAT from bootstrap PVC"
 ok "PAT obtained (${#PAT} chars)"
 
