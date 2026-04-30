@@ -94,34 +94,13 @@ metadata:
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
     - port: 3100
       targetPort: 3100
+      nodePort: 30100
   selector:
     app: loki
----
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: loki
-  namespace: flui-observability
-  labels:
-    app: loki
-    flui.cloud/managed: "true"
-    flui.cloud/scope: "system"
-spec:
-  entryPoints:
-    - web
-    - websecure
-  routes:
-    - match: Host(`loki.${FLUI_BASE_DOMAIN}`)
-      kind: Rule
-      priority: 80
-      services:
-        - name: loki
-          port: 3100
-  tls: {}
 ---
 apiVersion: apps/v1
 kind: Deployment

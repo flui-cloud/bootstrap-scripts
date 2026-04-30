@@ -97,18 +97,17 @@ test_observability_connectivity() {
         warn "  ⚠ Observability cluster not responding to ping (may be blocked)"
     fi
 
-    # Test 2: TCP connection to Traefik port 80 (Loki/Grafana via Ingress)
-    log "  Testing Traefik port 80 (VNet)..."
-    if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$OBS_CLUSTER_IP/80" 2>/dev/null; then
-        log "  ✓ Traefik port 80 is reachable (Loki/Grafana via Ingress)"
+    # Test 2: TCP connection to Loki NodePort via VNet (30100 not in public firewall)
+    log "  Testing Loki port 30100 (VNet private)..."
+    if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$OBS_CLUSTER_IP/30100" 2>/dev/null; then
+        log "  ✓ Loki port 30100 reachable via VNet"
     else
-        warn "  ✗ Traefik port 80 is NOT reachable - logs will not be forwarded"
-        warn "    Check VNet connectivity to observability cluster"
+        warn "  ✗ Loki port 30100 NOT reachable - check VNet connectivity"
     fi
 
     # Measure network latency
     local START_TIME=$(date +%s%N 2>/dev/null || echo "0")
-    if timeout 3 bash -c "cat < /dev/null > /dev/tcp/$OBS_CLUSTER_IP/80" 2>/dev/null; then
+    if timeout 3 bash -c "cat < /dev/null > /dev/tcp/$OBS_CLUSTER_IP/30100" 2>/dev/null; then
         local END_TIME=$(date +%s%N 2>/dev/null || echo "$START_TIME")
         if [ "$START_TIME" != "0" ] && [ "$END_TIME" != "$START_TIME" ]; then
             local LATENCY_MS=$(( (END_TIME - START_TIME) / 1000000 ))
@@ -195,8 +194,8 @@ fi
 # For workload clusters, override Loki endpoint to send logs to remote observability cluster
 # For observability clusters, keep localhost configuration
 if [ "$DEPLOY_OBSERVABILITY_STACK" = "false" ] && [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
-    export LOKI_ENDPOINT="loki.${OBSERVABILITY_CLUSTER_IP}.nip.io:80"
-    log "Configuring workload cluster to send logs to loki.${OBSERVABILITY_CLUSTER_IP}.nip.io (via VNet+Traefik)"
+    export LOKI_ENDPOINT="${OBSERVABILITY_CLUSTER_IP}:30100"
+    log "Loki endpoint (VNet): ${LOKI_ENDPOINT}"
 else
     export LOKI_ENDPOINT="loki.flui-observability.svc.cluster.local:3100"
 fi

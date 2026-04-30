@@ -74,10 +74,11 @@ metadata:
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
     - port: 9090
       targetPort: 9090
+      nodePort: 30090
   selector:
     app: prometheus
 ---
