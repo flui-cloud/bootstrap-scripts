@@ -14,11 +14,10 @@ metadata:
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
     - port: 5432
       targetPort: 5432
-      nodePort: 30432
   selector:
     app: postgres
 ---

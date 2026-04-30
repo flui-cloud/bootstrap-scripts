@@ -34,6 +34,7 @@ metadata:
 spec:
   entryPoints:
     - web
+    - websecure
   routes:
     - match: Host(`api.${FLUI_BASE_DOMAIN}`)
       kind: Rule
@@ -41,6 +42,7 @@ spec:
       services:
         - name: flui-api
           port: 3000
+  tls: {}
 ---
 apiVersion: apps/v1
 kind: Deployment

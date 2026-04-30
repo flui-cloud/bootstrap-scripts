@@ -14,11 +14,10 @@ metadata:
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
     - port: 6379
       targetPort: 6379
-      nodePort: 30379
   selector:
     app: redis
 ---

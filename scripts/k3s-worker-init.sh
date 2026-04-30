@@ -50,18 +50,18 @@ test_observability_connectivity() {
         warn "  ⚠ Observability cluster not responding to ping (may be blocked)"
     fi
 
-    # Test 2: TCP connection to Loki port (30100)
-    log "  Testing Loki port (30100)..."
-    if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$OBS_CLUSTER_IP/30100" 2>/dev/null; then
-        log "  ✓ Loki port 30100 is reachable"
+    # Test 2: TCP connection to Traefik port 80 (Loki via Ingress)
+    log "  Testing Traefik port 80 (VNet)..."
+    if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$OBS_CLUSTER_IP/80" 2>/dev/null; then
+        log "  ✓ Traefik port 80 is reachable (Loki via Ingress)"
     else
-        warn "  ✗ Loki port 30100 is NOT reachable - logs will not be forwarded"
-        warn "    Check firewall rules on observability cluster"
+        warn "  ✗ Traefik port 80 is NOT reachable - logs will not be forwarded"
+        warn "    Check VNet connectivity to observability cluster"
     fi
 
     # Measure network latency
     local START_TIME=$(date +%s%N 2>/dev/null || echo "0")
-    if timeout 3 bash -c "cat < /dev/null > /dev/tcp/$OBS_CLUSTER_IP/30100" 2>/dev/null; then
+    if timeout 3 bash -c "cat < /dev/null > /dev/tcp/$OBS_CLUSTER_IP/80" 2>/dev/null; then
         local END_TIME=$(date +%s%N 2>/dev/null || echo "$START_TIME")
         if [ "$START_TIME" != "0" ] && [ "$END_TIME" != "$START_TIME" ]; then
             local LATENCY_MS=$(( (END_TIME - START_TIME) / 1000000 ))
@@ -144,16 +144,14 @@ fi
 # Export monitoring endpoints for log forwarding
 # For workload clusters, send logs to remote observability cluster
 if [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
-    # Workload cluster - send logs to remote observability cluster
-    export LOKI_ENDPOINT="${OBSERVABILITY_CLUSTER_IP}:30100"
-    log "Configuring workload cluster to send logs to observability cluster at ${OBSERVABILITY_CLUSTER_IP}:30100"
+    export LOKI_ENDPOINT="loki.${OBSERVABILITY_CLUSTER_IP}.nip.io:80"
+    log "Configuring workload cluster to send logs to loki.${OBSERVABILITY_CLUSTER_IP}.nip.io (via VNet+Traefik)"
 else
-    # No observability cluster configured - use localhost (logs will be lost if no local Loki)
-    export LOKI_ENDPOINT="localhost:30100"
-    warn "No observability cluster configured - logs will be sent to localhost:30100"
+    export LOKI_ENDPOINT="localhost:3100"
+    warn "No observability cluster configured - logs will be sent to localhost (no Loki available)"
 fi
 
-export PROMETHEUS_ENDPOINT="localhost:30090"
+export PROMETHEUS_ENDPOINT="localhost:9090"
 # Validate SERVER_ID
 if [[ -z "$SERVER_ID" ]]; then
     error "SERVER_ID not provided - this should be the database node ID from infrastructure_cluster_nodes table"

@@ -17,8 +17,8 @@ metadata:
 data:
   config.json: |
     {
-      "apiBaseUrl": "http://${MASTER_IP}:30080",
-      "wsUrl": "ws://${MASTER_IP}:30080",
+      "apiBaseUrl": "https://api.${FLUI_BASE_DOMAIN}",
+      "wsUrl": "wss://api.${FLUI_BASE_DOMAIN}",
       "authMode": "${AUTH_MODE}",
       "oidcIssuer": "${OIDC_ISSUER}",
       "oidcClientId": "${OIDC_AUDIENCE}",

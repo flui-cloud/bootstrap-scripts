@@ -14,13 +14,34 @@ metadata:
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
     - port: 3000
       targetPort: 3000
-      nodePort: 30300
   selector:
     app: grafana
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: grafana
+  namespace: flui-observability
+  labels:
+    app: grafana
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+spec:
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: Host(`grafana.${FLUI_BASE_DOMAIN}`)
+      kind: Rule
+      priority: 80
+      services:
+        - name: grafana
+          port: 3000
+  tls: {}
 ---
 apiVersion: apps/v1
 kind: Deployment
