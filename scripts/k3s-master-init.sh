@@ -724,12 +724,15 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         fi
     fi
 
-    # Get primary IP for NodePort access
+    # Get primary IP for routing
     PRIMARY_IP=$(hostname -I | awk '{print $1}')
     export MASTER_IP="$PRIMARY_IP"
+    FLUI_BASE_DOMAIN="${FLUI_BASE_DOMAIN:-${PRIMARY_IP}.nip.io}"
+    export FLUI_BASE_DOMAIN
+    log "FLUI_BASE_DOMAIN: $FLUI_BASE_DOMAIN (api.$FLUI_BASE_DOMAIN, app.$FLUI_BASE_DOMAIN)"
     # Default Zitadel domain to nip.io-based domain if not explicitly set (oidc mode only)
     if [ "$AUTH_MODE" = "oidc" ] && [ -z "$ZITADEL_DOMAIN" ]; then
-        ZITADEL_DOMAIN="auth.${PRIMARY_IP}.nip.io"
+        ZITADEL_DOMAIN="auth.${FLUI_BASE_DOMAIN}"
         log "ZITADEL_DOMAIN not set, defaulting to: $ZITADEL_DOMAIN"
     fi
     # Resolve OIDC env vars based on AUTH_MODE.
@@ -782,6 +785,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
             export OIDC_ISSUER OIDC_JWKS_URI OIDC_AUDIENCE
             export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD CERTIFICATE_MODE
+            export FLUI_BASE_DOMAIN
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         else
             log "⚠️  envsubst not found, using sed for variable substitution..."
@@ -810,6 +814,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s|\${JWT_SECRET}|$JWT_SECRET|g" \
                 -e "s/\${ADMIN_EMAIL}/$ADMIN_EMAIL/g" \
                 -e "s|\${ADMIN_PASSWORD}|$ADMIN_PASSWORD|g" \
+                -e "s/\${FLUI_BASE_DOMAIN}/$FLUI_BASE_DOMAIN/g" \
                 "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         fi
 
@@ -979,13 +984,13 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "=========================================="
     log "Service Endpoints"
     log "=========================================="
-    log "Grafana:    http://$PRIMARY_IP:30300 (admin/$GRAFANA_PASSWORD)"
-    log "Prometheus: http://$PRIMARY_IP:30090"
-    log "PostgreSQL: postgres:5432 (fluicloud/$POSTGRES_PASSWORD)"
-    log "Redis:      redis:6379 (password: $REDIS_PASSWORD)"
-    log "Loki:       http://$PRIMARY_IP:30100"
-    log "Flui API:   http://$PRIMARY_IP:30080"
-    log "Flui Web:   http://$PRIMARY_IP:30880"
+    log "Grafana:    cluster-internal only (kubectl port-forward grafana)"
+    log "Prometheus: cluster-internal only (kubectl port-forward prometheus)"
+    log "PostgreSQL: postgres:5432 (fluicloud/$POSTGRES_PASSWORD) — cluster-internal"
+    log "Redis:      redis:6379 (password: $REDIS_PASSWORD) — cluster-internal"
+    log "Loki:       cluster-internal only"
+    log "Flui API:   http://api.$FLUI_BASE_DOMAIN"
+    log "Flui Web:   http://app.$FLUI_BASE_DOMAIN"
     if [ "$AUTH_MODE" = "oidc" ]; then
         log "Zitadel:    https://$ZITADEL_DOMAIN (admin: $ZITADEL_ADMIN_EMAIL)"
     else
@@ -1018,103 +1023,11 @@ fi
 touch /var/log/k3s-master-ready
 log "✅ Marker file created: /var/log/k3s-master-ready"
 
-# STEP 13: Start Health Endpoint HTTP Server
-# ============================================================
+# STEP 13: Bootstrap completion marker
+# CLI poller checks http://app.${FLUI_BASE_DOMAIN}/ via Traefik to detect readiness.
 log ""
-log "Starting health endpoint HTTP server on port 8080..."
-
-# Create observability directory
-mkdir -p /opt/observability
-
-# Create HTTP server script with dynamic health checks
-cat > /opt/observability/health-server.py <<'EOF_HEALTH_SERVER'
-#!/usr/bin/env python3
-import http.server
-import socketserver
-import urllib.request
-import json
-from datetime import datetime
-
-PORT = 8080
-
-def check_service(url, timeout=2):
-    """Check if a service is responding by making an HTTP request"""
-    try:
-        urllib.request.urlopen(url, timeout=timeout)
-        return True
-    except:
-        return False
-
-class HealthHandler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/health':
-            # Perform real-time health checks on services
-            prometheus_healthy = check_service('http://localhost:30090/-/healthy')
-            grafana_healthy = check_service('http://localhost:30300/api/health')
-            loki_healthy = check_service('http://localhost:30100/ready')
-            flui_api_healthy = check_service('http://localhost:30080/api/v1/health/ping')
-            flui_web_healthy = check_service('http://localhost:30880/')
-
-            # Determine overall status (core services only, flui-api/web are optional)
-            all_ready = prometheus_healthy and grafana_healthy and loki_healthy
-
-            # Build response
-            response = {
-                'status': 'ready' if all_ready else 'initializing',
-                'services': {
-                    'prometheus': 'ready' if prometheus_healthy else 'unavailable',
-                    'grafana': 'ready' if grafana_healthy else 'unavailable',
-                    'loki': 'ready' if loki_healthy else 'unavailable',
-                    'flui_api': 'ready' if flui_api_healthy else 'unavailable',
-                    'flui_web': 'ready' if flui_web_healthy else 'unavailable'
-                },
-                'timestamp': datetime.utcnow().isoformat() + 'Z'
-            }
-
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(response).encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, format, *args):
-        # Suppress HTTP server logs
-        pass
-
-with socketserver.TCPServer(("", PORT), HealthHandler) as httpd:
-    print(f"Health server running on port {PORT}")
-    httpd.serve_forever()
-EOF_HEALTH_SERVER
-
-chmod +x /opt/observability/health-server.py
-
-# Create systemd service for health server
-cat > /etc/systemd/system/observability-health.service <<EOF_SYSTEMD
-[Unit]
-Description=Observability Health HTTP Server
-After=network.target
-
-[Service]
-Type=simple
-ExecStartPre=/bin/mkdir -p /opt/observability
-ExecStart=/usr/bin/python3 /opt/observability/health-server.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF_SYSTEMD
-
-systemctl daemon-reload
-systemctl enable observability-health.service
-systemctl start observability-health.service
-
-log "✅ Health server started and configured as systemd service"
-log "   Health endpoint: http://$PRIMARY_IP:8080/health"
-log "   Script location: /opt/observability/health-server.py"
+log "Bootstrap complete. Readiness signal: http://app.$FLUI_BASE_DOMAIN/"
+touch /var/log/flui-bootstrap-complete
 
 log ""
 log "=========================================="
