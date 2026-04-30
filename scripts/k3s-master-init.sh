@@ -310,21 +310,22 @@ fi
 PRIMARY_IP=$(hostname -I | awk '{print $1}')
 log "Primary IP address: $PRIMARY_IP"
 
-# Resolve VNet private IP (preferred for K3s --node-ip / --advertise-address).
-# Hetzner exposes the private NIC as ens10; fall back to first RFC1918 address.
 if [ -z "${PRIVATE_IP:-}" ]; then
-  PRIVATE_IP=$(ip -4 -o addr show ens10 2>/dev/null | awk '{print $4}' | cut -d/ -f1 || true)
-  if [ -z "${PRIVATE_IP:-}" ]; then
-    PRIVATE_IP=$(ip -4 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1 \
-      | grep -E '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' | head -1 || true)
-  fi
+  PRIVATE_IP=$(ip -4 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1 \
+    | grep -E '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' | head -1 || true)
 fi
-log "VNet private IP: ${PRIVATE_IP:-(not detected)}"
+
+PRIVATE_IFACE=""
+if [ -n "${PRIVATE_IP:-}" ]; then
+  PRIVATE_IFACE=$(ip -4 -o addr show 2>/dev/null \
+    | awk -v ip="$PRIVATE_IP" '$4 ~ "^"ip"/" {print $2; exit}' || true)
+fi
+log "VNet private IP: ${PRIVATE_IP:-(not detected)} on iface ${PRIVATE_IFACE:-(none)}"
 
 K3S_NODE_IP_FLAGS=""
-if [ -n "${PRIVATE_IP:-}" ]; then
-  K3S_NODE_IP_FLAGS="--node-ip=$PRIVATE_IP --advertise-address=$PRIVATE_IP --flannel-iface=ens10"
-  log "K3s will bind to private IP $PRIVATE_IP via ens10"
+if [ -n "${PRIVATE_IP:-}" ] && [ -n "${PRIVATE_IFACE:-}" ]; then
+  K3S_NODE_IP_FLAGS="--node-ip=$PRIVATE_IP --advertise-address=$PRIVATE_IP --flannel-iface=$PRIVATE_IFACE"
+  log "K3s will bind to private IP $PRIVATE_IP via $PRIVATE_IFACE"
 fi
 
 # Install K3s as server (master)
