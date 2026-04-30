@@ -758,6 +758,35 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "✅ All manifests downloaded and deployed to $MANIFEST_DIR"
     log "K3s will auto-apply these manifests..."
 
+    # Async TLS certificate bootstrap (nip.io clusters only)
+    # Waits for cert-manager + Traefik + namespace, then applies the Certificate.
+    # Runs in background so it doesn't block k3s init flow.
+    if [ "${FLUI_NIP_IO_CERT_ENABLED:-}" = "true" ]; then
+        log "→ Scheduling async system TLS certificate bootstrap..."
+        if ! curl -fsSL "$MANIFESTS_BASE_URL/observability/13-system-tls-cert.yaml" -o /tmp/13-system-tls-cert.yaml; then
+            warn "Failed to download 13-system-tls-cert.yaml — TLS bootstrap skipped"
+        else
+            export ADMIN_EMAIL FLUI_BASE_DOMAIN
+            envsubst < /tmp/13-system-tls-cert.yaml > /tmp/13-system-tls-cert.rendered.yaml
+            (
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for cert-manager CRDs..."
+                kubectl wait --for=condition=Established crd/certificates.cert-manager.io --timeout=600s
+                kubectl wait --for=condition=Established crd/clusterissuers.cert-manager.io --timeout=600s
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for cert-manager deployment..."
+                kubectl wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=600s
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for Traefik pod..."
+                kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=traefik -n kube-system --timeout=600s
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for flui-system namespace..."
+                until kubectl get namespace flui-system >/dev/null 2>&1; do sleep 2; done
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Applying ClusterIssuer + Certificate..."
+                kubectl apply -f /tmp/13-system-tls-cert.rendered.yaml
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ System TLS certificate requested"
+            ) > /var/log/flui-cert-bootstrap.log 2>&1 &
+            disown
+            log "✓ TLS bootstrap subshell started (PID $!) — log: /var/log/flui-cert-bootstrap.log"
+        fi
+    fi
+
     log "→ Waiting for K3s to create the postgres pod..."
     until kubectl get pod -l app=postgres -n flui-system 2>/dev/null | grep -q "postgres"; do
         sleep 3
