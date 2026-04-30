@@ -903,8 +903,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "PostgreSQL: postgres:5432 (fluicloud/$POSTGRES_PASSWORD) — cluster-internal"
     log "Redis:      redis:6379 (password: $REDIS_PASSWORD) — cluster-internal"
     log "Loki:       cluster-internal only"
-    log "Flui API:   http://api.$FLUI_BASE_DOMAIN"
-    log "Flui Web:   http://app.$FLUI_BASE_DOMAIN"
+    log "Flui API:   https://api.$FLUI_BASE_DOMAIN"
+    log "Flui Web:   https://app.$FLUI_BASE_DOMAIN"
     if [ "$AUTH_MODE" = "oidc" ]; then
         log "Zitadel:    https://$ZITADEL_DOMAIN (admin: $ZITADEL_ADMIN_EMAIL)"
     else
@@ -933,7 +933,7 @@ touch /var/log/k3s-master-ready
 log "✅ Marker file created: /var/log/k3s-master-ready"
 
 log ""
-log "Bootstrap complete. Readiness signal: http://app.$FLUI_BASE_DOMAIN/"
+log "Bootstrap complete. Readiness signal: https://app.$FLUI_BASE_DOMAIN/"
 touch /var/log/flui-bootstrap-complete
 
 log ""
