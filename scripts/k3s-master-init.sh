@@ -766,6 +766,12 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         if ! curl -fsSL "$MANIFESTS_BASE_URL/observability/13-system-tls-cert.yaml" -o /tmp/13-system-tls-cert.yaml; then
             warn "Failed to download 13-system-tls-cert.yaml — TLS bootstrap skipped"
         else
+            if [ "${FLUI_ACME_STAGING:-}" = "true" ]; then
+                export ACME_SERVER_URL="https://acme-staging-v02.api.letsencrypt.org/directory"
+                log "✓ Using Let's Encrypt STAGING (untrusted cert, no rate limits)"
+            else
+                export ACME_SERVER_URL="https://acme-v02.api.letsencrypt.org/directory"
+            fi
             export ADMIN_EMAIL FLUI_BASE_DOMAIN
             envsubst < /tmp/13-system-tls-cert.yaml > /tmp/13-system-tls-cert.rendered.yaml
             (

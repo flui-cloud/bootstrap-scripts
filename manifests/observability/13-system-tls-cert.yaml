@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/managed-by: flui-cloud
 spec:
   acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
+    server: ${ACME_SERVER_URL}
     email: ${ADMIN_EMAIL}
     privateKeySecretRef:
       name: letsencrypt-production-key
