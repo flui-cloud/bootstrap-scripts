@@ -745,6 +745,12 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         fi
 
+        if [ "${FLUI_NIP_IO_CERT_ENABLED:-}" = "true" ] && \
+           [[ "$manifest" == "09-flui-api" || "$manifest" == "10-flui-web" || "$manifest" == "11-zitadel" ]]; then
+            sed -i 's|^  tls: {}$|  tls:\n    secretName: flui-system-tls|' "$MANIFEST_DIR/${manifest}.yaml"
+            log "✓ Wired ${manifest} IngressRoute to flui-system-tls"
+        fi
+
         log "✅ ${manifest}.yaml deployed"
         rm -f "/tmp/${manifest}.yaml"
     done
