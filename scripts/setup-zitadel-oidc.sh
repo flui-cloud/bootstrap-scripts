@@ -75,8 +75,9 @@ PAT_RAW=$(kubectl run pat-reader --rm -i --restart=Never \
       }]
     }
   }' 2>&1 || true)
-# PAT is a JOSE token: header.payload.signature (base64url segments joined by '.')
-PAT=$(echo "$PAT_RAW" | grep -oE '[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' | head -1)
+# PAT is a JOSE compact token; Zitadel uses JWE with 5 segments.
+# Take the first line of the file content and strip whitespace.
+PAT=$(echo "$PAT_RAW" | grep -E '^[A-Za-z0-9_.-]+$' | head -1 | tr -d '[:space:]')
 [ -z "$PAT" ] && error "Could not read PAT from bootstrap PVC"
 ok "PAT obtained (${#PAT} chars)"
 
