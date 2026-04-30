@@ -12,7 +12,7 @@ CLUSTER_ID="${CLUSTER_ID}"
 CLUSTER_NAME="${CLUSTER_NAME}"
 K3S_TOKEN="${K3S_TOKEN}"
 K3S_URL="${K3S_URL}"
-K3S_VERSION="${K3S_VERSION:-v1.28.4+k3s1}"
+K3S_VERSION="${K3S_VERSION:-v1.35.4+k3s1}"
 MASTER_IP="${MASTER_IP}"
 
 # Multi-cluster observability configuration
