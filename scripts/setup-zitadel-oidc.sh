@@ -2,60 +2,59 @@
 # =============================================================================
 # setup-zitadel-oidc.sh
 #
-# Configures Zitadel OIDC for Flui platform on an existing cluster.
-# Reads the machine user PAT from the bootstrap PVC, then uses Zitadel
-# Management API to create project, roles, OIDC application, and grant
-# admin role. Finally patches Kubernetes resources and restarts deployments.
+# Configures Zitadel OIDC for Flui platform on a fresh observability cluster.
+# Mirrors the API-side OidcBootstrapService so it can run BEFORE flui-api boots,
+# eliminating the rollout-restart cycle and saving ~60s on first install.
 #
-# Usage:
-#   ./setup-zitadel-oidc.sh
-#
-# Prerequisites:
-#   - kubectl configured and pointing to the cluster
-#   - Zitadel running in flui-system namespace
-#   - jq installed (script will install if missing)
+# Steps (idempotent):
+#   1. Read machine user PAT from zitadel-bootstrap-pvc
+#   2. Create / find "Flui" project (with projectRoleAssertion=true)
+#   3. Create roles: admin, user, readonly
+#   4. Create / update "Flui Web" OIDC SPA app (HTTPS redirects + dev origin)
+#   5. Create / update "Flui CLI" OIDC native app (loopback ports 8899-8910)
+#   6. Grant admin role to flui-admin user
+#   7. Patch flui-secrets, flui-web-config, flui-api-config
+#   8. Restart flui-api and flui-web deployments
 # =============================================================================
 set -euo pipefail
 
-# --- Helpers -----------------------------------------------------------------
 log()   { echo -e "\033[0;36m[INFO]\033[0m  $*"; }
 warn()  { echo -e "\033[0;33m[WARN]\033[0m  $*"; }
 error() { echo -e "\033[0;31m[ERROR]\033[0m $*"; exit 1; }
 ok()    { echo -e "\033[0;32m[OK]\033[0m    $*"; }
 
-# Zitadel requires Host header matching its ExternalDomain
-zitadel_curl() {
-  curl -s -H "Host: ${ZITADEL_DOMAIN}" "$@"
-}
-
-zitadel_api() {
+zitadel_curl() { curl -s -H "Host: ${ZITADEL_DOMAIN}" "$@"; }
+zitadel_api()  {
   curl -s -H "Host: ${ZITADEL_DOMAIN}" \
     -H "Authorization: Bearer ${PAT}" \
     -H "Content-Type: application/json" \
     "$@"
 }
 
-# --- Dependencies ------------------------------------------------------------
 if ! command -v jq &>/dev/null; then
   log "Installing jq..."
   apt-get update -qq && apt-get install -y -qq jq >/dev/null 2>&1
 fi
 
 # --- Discover cluster info ---------------------------------------------------
-MASTER_IP=$(hostname -I | awk '{print $1}')
+MASTER_IP="${MASTER_IP:-$(hostname -I | awk '{print $1}')}"
 ZITADEL_DOMAIN="auth.${MASTER_IP}.nip.io"
 ZITADEL_SVC="http://$(kubectl get svc zitadel -n flui-system -o jsonpath='{.spec.clusterIP}'):8080"
 
 log "Master IP:      ${MASTER_IP}"
 log "Zitadel domain: ${ZITADEL_DOMAIN}"
-log "Zitadel SVC:    ${ZITADEL_SVC}"
 
-# --- Verify Zitadel is healthy -----------------------------------------------
-log "Checking Zitadel health..."
-if ! zitadel_curl -f "${ZITADEL_SVC}/debug/ready" >/dev/null 2>&1; then
-  error "Zitadel is not ready. Check: kubectl logs deployment/zitadel -n flui-system"
-fi
-ok "Zitadel is healthy"
+# --- Wait for Zitadel ready --------------------------------------------------
+log "Waiting for Zitadel readiness..."
+for _ in $(seq 1 120); do
+  if zitadel_curl -fsS "${ZITADEL_SVC}/debug/ready" >/dev/null 2>&1; then
+    ok "Zitadel is healthy"
+    break
+  fi
+  sleep 5
+done
+zitadel_curl -fsS "${ZITADEL_SVC}/debug/ready" >/dev/null 2>&1 || \
+  error "Zitadel did not become ready in 10 minutes"
 
 # --- Step 1: Read PAT from bootstrap PVC -------------------------------------
 log "Reading machine user PAT from bootstrap PVC..."
@@ -68,139 +67,173 @@ PAT_RAW=$(kubectl run pat-reader --rm -i --restart=Never \
         "name": "pat-reader",
         "image": "busybox",
         "command": ["cat", "/bootstrap/flui-api-system.pat"],
-        "volumeMounts": [{
-          "name": "bootstrap",
-          "mountPath": "/bootstrap"
-        }]
+        "volumeMounts": [{"name": "bootstrap", "mountPath": "/bootstrap"}]
       }],
       "volumes": [{
         "name": "bootstrap",
-        "persistentVolumeClaim": {
-          "claimName": "zitadel-bootstrap-pvc"
-        }
+        "persistentVolumeClaim": {"claimName": "zitadel-bootstrap-pvc"}
       }]
     }
   }' 2>&1 || true)
-# Extract only the PAT token (first line, alphanumeric + underscore + dash)
 PAT=$(echo "$PAT_RAW" | grep -oE '^[A-Za-z0-9_-]{20,}' | head -1)
-
-if [ -z "$PAT" ]; then
-  error "Could not read PAT from bootstrap PVC. Is Zitadel fully initialized?"
-fi
+[ -z "$PAT" ] && error "Could not read PAT from bootstrap PVC"
 ok "PAT obtained (${#PAT} chars)"
 
-# --- Step 2: Verify PAT works ------------------------------------------------
-log "Verifying PAT..."
+# --- Step 2: Verify PAT ------------------------------------------------------
 ME_RESPONSE=$(zitadel_api "${ZITADEL_SVC}/auth/v1/users/me")
 MY_USERNAME=$(echo "$ME_RESPONSE" | jq -r '.user.userName // empty')
-
-if [ -z "$MY_USERNAME" ]; then
-  error "PAT verification failed. Response: ${ME_RESPONSE}"
-fi
+[ -z "$MY_USERNAME" ] && error "PAT verification failed: ${ME_RESPONSE}"
 ok "Authenticated as: ${MY_USERNAME}"
 
-# --- Step 3: Create Flui project ---------------------------------------------
-log "Creating Flui project..."
-PROJECT_RESPONSE=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects" \
-  -d '{"name": "Flui", "projectRoleAssertion": true}')
+# --- Step 3: Create / find Flui project --------------------------------------
+log "Ensuring Flui project..."
+SEARCH=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/_search" \
+  -d '{"queries":[{"nameQuery":{"name":"Flui","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
+PROJECT_ID=$(echo "$SEARCH" | jq -r '.result[0].id // empty')
 
-PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.id // empty')
 if [ -z "$PROJECT_ID" ]; then
-  # Check if already exists
-  EXISTING=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/_search" \
-    -d '{"queries":[{"nameQuery":{"name":"Flui","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
-  PROJECT_ID=$(echo "$EXISTING" | jq -r '.result[0].id // empty')
-  if [ -z "$PROJECT_ID" ]; then
-    error "Failed to create project. Response: ${PROJECT_RESPONSE}"
-  fi
-  ok "Project already exists: ${PROJECT_ID}"
-else
+  CREATE=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects" \
+    -d '{"name":"Flui","projectRoleAssertion":true,"projectRoleCheck":false,"hasProjectCheck":false,"privateLabelingSetting":"PRIVATE_LABELING_SETTING_UNSPECIFIED"}')
+  PROJECT_ID=$(echo "$CREATE" | jq -r '.id // empty')
+  [ -z "$PROJECT_ID" ] && error "Failed to create project: ${CREATE}"
   ok "Project created: ${PROJECT_ID}"
-fi
-
-# --- Step 4: Create admin role -----------------------------------------------
-log "Creating admin role..."
-ROLE_RESPONSE=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/${PROJECT_ID}/roles" \
-  -d '{"roleKey": "admin", "displayName": "Administrator"}')
-ROLE_ERROR=$(echo "$ROLE_RESPONSE" | jq -r '.code // 0')
-if [ "$ROLE_ERROR" = "6" ]; then
-  ok "Role 'admin' already exists"
 else
-  ok "Role 'admin' created"
+  ok "Project found: ${PROJECT_ID}"
 fi
 
-# --- Step 5: Create OIDC application (SPA with PKCE) -------------------------
-log "Creating Flui Web OIDC application..."
-FLUI_WEB_REDIRECT="http://app.${MASTER_IP}.nip.io/auth/callback"
-FLUI_WEB_LOGOUT="http://app.${MASTER_IP}.nip.io"
+# --- Step 4: Create roles (admin, user, readonly) ----------------------------
+for role_pair in "admin:Administrator" "user:User" "readonly:Read-only / Demo"; do
+  KEY="${role_pair%%:*}"
+  DISPLAY="${role_pair#*:}"
+  RESP=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/${PROJECT_ID}/roles" \
+    -d "{\"roleKey\":\"${KEY}\",\"displayName\":\"${DISPLAY}\"}")
+  CODE=$(echo "$RESP" | jq -r '.code // 0')
+  if [ "$CODE" = "6" ]; then
+    ok "Role '${KEY}' already exists"
+  else
+    ok "Role '${KEY}' created"
+  fi
+done
 
-APP_RESPONSE=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/${PROJECT_ID}/apps/oidc" \
-  -d "{
-    \"name\": \"Flui Web\",
-    \"redirectUris\": [\"${FLUI_WEB_REDIRECT}\"],
-    \"postLogoutRedirectUris\": [\"${FLUI_WEB_LOGOUT}\"],
-    \"responseTypes\": [\"OIDC_RESPONSE_TYPE_CODE\"],
-    \"grantTypes\": [\"OIDC_GRANT_TYPE_AUTHORIZATION_CODE\"],
-    \"appType\": \"OIDC_APP_TYPE_USER_AGENT\",
-    \"authMethodType\": \"OIDC_AUTH_METHOD_TYPE_NONE\",
-    \"accessTokenType\": \"OIDC_TOKEN_TYPE_JWT\",
-    \"devMode\": true
-  }")
+# --- Step 5: Create / update Flui Web OIDC SPA app ---------------------------
+log "Ensuring Flui Web OIDC app..."
+WEB_REDIRECTS=$(jq -nc \
+  --arg main "https://app.${MASTER_IP}.nip.io/auth/callback" \
+  --arg dev  "http://localhost:4200/auth/callback" \
+  '[$main, $dev]')
+WEB_POST_LOGOUT=$(jq -nc \
+  --arg main "https://app.${MASTER_IP}.nip.io" \
+  --arg dev  "http://localhost:4200" \
+  '[$main, $dev]')
 
-FLUI_CLIENT_ID=$(echo "$APP_RESPONSE" | jq -r '.clientId // empty')
-if [ -z "$FLUI_CLIENT_ID" ]; then
-  error "Failed to create OIDC app. Response: ${APP_RESPONSE}"
+APP_SEARCH=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/${PROJECT_ID}/apps/_search" \
+  -d '{"queries":[{"nameQuery":{"name":"Flui Web","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
+WEB_APP_ID=$(echo "$APP_SEARCH" | jq -r '.result[0].id // empty')
+WEB_CLIENT_ID=$(echo "$APP_SEARCH" | jq -r '.result[0].oidcConfig.clientId // empty')
+
+if [ -z "$WEB_APP_ID" ]; then
+  CREATE=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/${PROJECT_ID}/apps/oidc" \
+    -d "$(jq -nc --argjson redirects "$WEB_REDIRECTS" --argjson logout "$WEB_POST_LOGOUT" '{
+      name: "Flui Web",
+      redirectUris: $redirects,
+      postLogoutRedirectUris: $logout,
+      responseTypes: ["OIDC_RESPONSE_TYPE_CODE"],
+      grantTypes: ["OIDC_GRANT_TYPE_AUTHORIZATION_CODE"],
+      appType: "OIDC_APP_TYPE_USER_AGENT",
+      authMethodType: "OIDC_AUTH_METHOD_TYPE_NONE",
+      accessTokenType: "OIDC_TOKEN_TYPE_JWT",
+      accessTokenRoleAssertion: true,
+      idTokenRoleAssertion: true,
+      idTokenUserinfoAssertion: true,
+      devMode: true
+    }')")
+  WEB_APP_ID=$(echo "$CREATE" | jq -r '.appId // empty')
+  WEB_CLIENT_ID=$(echo "$CREATE" | jq -r '.clientId // empty')
+  [ -z "$WEB_CLIENT_ID" ] && error "Failed to create Flui Web app: ${CREATE}"
+  ok "Flui Web app created: ${WEB_APP_ID} (client ${WEB_CLIENT_ID})"
+else
+  ok "Flui Web app found: ${WEB_APP_ID} (client ${WEB_CLIENT_ID})"
 fi
-ok "OIDC application created — Client ID: ${FLUI_CLIENT_ID}"FF
 
-# --- Step 6: Grant admin role to flui-admin -----------------------------------
+# --- Step 6: Create / update Flui CLI OIDC native app ------------------------
+log "Ensuring Flui CLI OIDC app..."
+CLI_REDIRECTS=$(jq -nc '[
+  "http://localhost:8899/callback",
+  "http://localhost:8900/callback",
+  "http://localhost:8901/callback",
+  "http://localhost:8902/callback",
+  "http://localhost:8910/callback"
+]')
+
+CLI_SEARCH=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/${PROJECT_ID}/apps/_search" \
+  -d '{"queries":[{"nameQuery":{"name":"Flui CLI","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
+CLI_APP_ID=$(echo "$CLI_SEARCH" | jq -r '.result[0].id // empty')
+
+if [ -z "$CLI_APP_ID" ]; then
+  CREATE=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/${PROJECT_ID}/apps/oidc" \
+    -d "$(jq -nc --argjson redirects "$CLI_REDIRECTS" '{
+      name: "Flui CLI",
+      redirectUris: $redirects,
+      postLogoutRedirectUris: [],
+      responseTypes: ["OIDC_RESPONSE_TYPE_CODE"],
+      grantTypes: ["OIDC_GRANT_TYPE_AUTHORIZATION_CODE"],
+      appType: "OIDC_APP_TYPE_NATIVE",
+      authMethodType: "OIDC_AUTH_METHOD_TYPE_NONE",
+      accessTokenType: "OIDC_TOKEN_TYPE_JWT",
+      accessTokenRoleAssertion: true,
+      idTokenRoleAssertion: true,
+      idTokenUserinfoAssertion: true,
+      devMode: true
+    }')")
+  CLI_APP_ID=$(echo "$CREATE" | jq -r '.appId // empty')
+  [ -z "$CLI_APP_ID" ] && error "Failed to create Flui CLI app: ${CREATE}"
+  ok "Flui CLI app created: ${CLI_APP_ID}"
+else
+  ok "Flui CLI app found: ${CLI_APP_ID}"
+fi
+
+# --- Step 7: Grant admin role to flui-admin ----------------------------------
 log "Granting admin role to flui-admin..."
 ADMIN_USER_ID=$(kubectl exec -n flui-system statefulset/postgres -- \
   psql -U zitadel_user -d zitadel -t -A -c \
   "SELECT id FROM projections.users14 WHERE username LIKE 'flui-admin%' AND type=1;" 2>/dev/null | tr -d '[:space:]')
 
 if [ -n "$ADMIN_USER_ID" ]; then
-  GRANT_RESPONSE=$(zitadel_api "${ZITADEL_SVC}/management/v1/users/${ADMIN_USER_ID}/grants" \
-    -d "{\"projectId\": \"${PROJECT_ID}\", \"roleKeys\": [\"admin\"]}")
-  GRANT_ERROR=$(echo "$GRANT_RESPONSE" | jq -r '.code // 0')
-  if [ "$GRANT_ERROR" = "0" ]; then
+  GRANT=$(zitadel_api "${ZITADEL_SVC}/management/v1/users/${ADMIN_USER_ID}/grants" \
+    -d "{\"projectId\":\"${PROJECT_ID}\",\"roleKeys\":[\"admin\"]}")
+  GRANT_CODE=$(echo "$GRANT" | jq -r '.code // 0')
+  if [ "$GRANT_CODE" = "0" ]; then
     ok "Admin role granted to flui-admin (${ADMIN_USER_ID})"
   else
-    warn "Grant response: ${GRANT_RESPONSE}"
+    warn "Grant response: ${GRANT}"
   fi
 else
-  warn "Could not find flui-admin user ID — grant role manually in console"
+  warn "Could not find flui-admin user — grant role manually"
 fi
 
-# --- Step 7: Inject PAT and Client ID into flui-secrets ----------------------
-# OIDC_AUDIENCE is the generic name (was ZITADEL_AUDIENCE).
-# ZITADEL_SERVICE_ACCOUNT_PAT stays Zitadel-specific: it's used to talk to
-# the Zitadel admin API, which is not a standard OIDC concept.
-log "Injecting PAT and Client ID into flui-secrets..."
+# --- Step 8: Patch flui-secrets ----------------------------------------------
+log "Patching flui-secrets..."
 kubectl patch secret flui-secrets -n flui-system --type merge \
-  -p "{\"stringData\":{\"OIDC_AUDIENCE\":\"${FLUI_CLIENT_ID}\",\"ZITADEL_SERVICE_ACCOUNT_PAT\":\"${PAT}\"}}"
+  -p "{\"stringData\":{\"OIDC_AUDIENCE\":\"${WEB_CLIENT_ID}\",\"OIDC_CLI_CLIENT_ID\":\"${CLI_APP_ID}\",\"ZITADEL_SERVICE_ACCOUNT_PAT\":\"${PAT}\"}}"
 ok "flui-secrets patched"
 
-# --- Step 8: Patch flui-web-config -------------------------------------------
+# --- Step 9: Patch flui-web-config -------------------------------------------
 log "Patching flui-web-config..."
 kubectl get configmap flui-web-config -n flui-system -o json | \
   python3 -c "
 import sys, json
 cm = json.load(sys.stdin)
 config = json.loads(cm['data'].get('config.json', '{}'))
-config['oidcClientId'] = '${FLUI_CLIENT_ID}'
-config['oidcIssuer'] = 'https://${ZITADEL_DOMAIN}'
 config['authMode'] = 'oidc'
+config['oidcIssuer'] = 'https://${ZITADEL_DOMAIN}'
+config['oidcClientId'] = '${WEB_CLIENT_ID}'
 cm.get('metadata', {}).pop('managedFields', None)
 cm['data']['config.json'] = json.dumps(config, indent=2)
 json.dump(cm, sys.stdout)" | kubectl apply -f -
 ok "flui-web-config patched"
 
-# --- Step 9: Patch flui-api-config -------------------------------------------
+# --- Step 10: Patch flui-api-config ------------------------------------------
 log "Patching flui-api-config..."
-# OIDC_JWKS_URI uses the internal HTTP service to avoid self-signed TLS issues.
-# OIDC_ISSUER remains the external HTTPS URL to match the 'iss' claim in JWTs.
-# Legacy ZITADEL_* keys are removed so the ConfigMap has a single source of truth.
 kubectl get configmap flui-api-config -n flui-system -o json | \
   python3 -c "
 import sys, json
@@ -214,22 +247,22 @@ cm.get('metadata', {}).pop('managedFields', None)
 json.dump(cm, sys.stdout)" | kubectl apply -f -
 ok "flui-api-config patched"
 
-# --- Step 10: Restart deployments --------------------------------------------
-log "Restarting flui-api and flui-web..."
-kubectl rollout restart deployment/flui-api deployment/flui-web -n flui-system
-ok "Deployments restarted"
+# --- Step 11: Restart deployments (only if already running) ------------------
+# When this script runs in parallel with the initial flui-api boot, the
+# deployment may not yet exist. The kubectl rollout restart is a no-op in
+# that case — the first pod will read the patched secret and config on boot.
+if kubectl get deployment flui-api -n flui-system >/dev/null 2>&1; then
+  log "Restarting flui-api and flui-web..."
+  kubectl rollout restart deployment/flui-api deployment/flui-web -n flui-system
+  ok "Deployments restarted"
+else
+  ok "flui-api deployment not yet created — patched config will be picked up on first boot"
+fi
 
-# --- Done! -------------------------------------------------------------------
 echo ""
 echo "=============================================="
 echo "  Zitadel OIDC setup complete!"
 echo "=============================================="
-echo ""
-echo "  Flui Web:     http://app.${MASTER_IP}.nip.io"
-echo "  Zitadel:      https://${ZITADEL_DOMAIN}/ui/console"
-echo "  Client ID:    ${FLUI_CLIENT_ID}"
-echo "  Project ID:   ${PROJECT_ID}"
-echo "  Redirect URI: ${FLUI_WEB_REDIRECT}"
-echo ""
-echo "  Login at the Flui dashboard — it will redirect to Zitadel."
-echo ""
+echo "  Web Client ID:  ${WEB_CLIENT_ID}"
+echo "  CLI App ID:     ${CLI_APP_ID}"
+echo "  Project ID:     ${PROJECT_ID}"

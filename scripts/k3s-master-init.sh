@@ -793,6 +793,30 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         fi
     fi
 
+    # Async OIDC provisioning (parallel to flui-api boot)
+    # Provisions the Zitadel project/apps/roles and patches flui-secrets/configmaps
+    # so flui-api picks up OIDC_AUDIENCE from a single restart driven by this script.
+    # Skips itself silently when AUTH_MODE != oidc.
+    if [ "${AUTH_MODE:-}" = "oidc" ]; then
+        log "→ Scheduling async OIDC provisioning..."
+        if ! curl -fsSL "$SCRIPTS_BASE_URL/setup-zitadel-oidc.sh" -o /tmp/setup-zitadel-oidc.sh; then
+            warn "Failed to download setup-zitadel-oidc.sh — OIDC bootstrap skipped (API-side fallback will handle it)"
+        else
+            chmod +x /tmp/setup-zitadel-oidc.sh
+            (
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for Zitadel deployment..."
+                kubectl wait --for=condition=Available deployment/zitadel -n flui-system --timeout=900s
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for zitadel-bootstrap-pvc..."
+                until kubectl get pvc zitadel-bootstrap-pvc -n flui-system >/dev/null 2>&1; do sleep 2; done
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Running setup-zitadel-oidc.sh..."
+                MASTER_IP="$MASTER_IP" /tmp/setup-zitadel-oidc.sh
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ OIDC provisioning complete"
+            ) > /var/log/flui-oidc-bootstrap.log 2>&1 &
+            disown
+            log "✓ OIDC bootstrap subshell started (PID $!) — log: /var/log/flui-oidc-bootstrap.log"
+        fi
+    fi
+
     log "→ Waiting for K3s to create the postgres pod..."
     until kubectl get pod -l app=postgres -n flui-system 2>/dev/null | grep -q "postgres"; do
         sleep 3
