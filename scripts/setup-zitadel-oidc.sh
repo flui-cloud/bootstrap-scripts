@@ -213,6 +213,49 @@ else
   warn "Could not find flui-admin user — grant role manually"
 fi
 
+# --- Step 7.5: Ensure bootstrap admin user (ADMIN_EMAIL) ---------------------
+# Mirrors API OidcBootstrapService.ensureBootstrapAdmin: creates the operational
+# human user from ADMIN_EMAIL/ADMIN_PASSWORD and grants admin role on the Flui
+# project. The default flui-admin@... user remains as a recovery account.
+if [ -n "${ADMIN_EMAIL:-}" ] && [ -n "${ADMIN_PASSWORD:-}" ]; then
+  log "Ensuring bootstrap admin user '${ADMIN_EMAIL}'..."
+  USER_SEARCH=$(zitadel_api "${ZITADEL_SVC}/management/v1/users/_search" \
+    -d "$(jq -nc --arg e "$ADMIN_EMAIL" '{queries:[{emailQuery:{emailAddress:$e,method:"TEXT_QUERY_METHOD_EQUALS"}}]}')")
+  ADMIN_HUMAN_ID=$(echo "$USER_SEARCH" | jq -r '.result[0].id // empty')
+
+  if [ -z "$ADMIN_HUMAN_ID" ]; then
+    CREATE=$(zitadel_api "${ZITADEL_SVC}/management/v1/users/human/_import" \
+      -d "$(jq -nc --arg u "$ADMIN_EMAIL" --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" '{
+        userName: $u,
+        profile: {firstName: "Flui", lastName: "Admin", displayName: "Flui Admin"},
+        email: {email: $e, isEmailVerified: true},
+        password: $p,
+        passwordChangeRequired: true
+      }')")
+    ADMIN_HUMAN_ID=$(echo "$CREATE" | jq -r '.userId // empty')
+    if [ -z "$ADMIN_HUMAN_ID" ]; then
+      warn "Failed to create bootstrap admin user: ${CREATE}"
+    else
+      ok "Bootstrap admin user created: ${ADMIN_EMAIL} (${ADMIN_HUMAN_ID})"
+    fi
+  else
+    ok "Bootstrap admin user already exists: ${ADMIN_EMAIL} (${ADMIN_HUMAN_ID})"
+  fi
+
+  if [ -n "$ADMIN_HUMAN_ID" ]; then
+    GRANT=$(zitadel_api "${ZITADEL_SVC}/management/v1/users/${ADMIN_HUMAN_ID}/grants" \
+      -d "{\"projectId\":\"${PROJECT_ID}\",\"roleKeys\":[\"admin\"]}")
+    GRANT_CODE=$(echo "$GRANT" | jq -r '.code // 0')
+    if [ "$GRANT_CODE" = "0" ] || [ "$GRANT_CODE" = "6" ]; then
+      ok "Admin role ensured for ${ADMIN_EMAIL}"
+    else
+      warn "Grant response for ${ADMIN_EMAIL}: ${GRANT}"
+    fi
+  fi
+else
+  warn "ADMIN_EMAIL or ADMIN_PASSWORD not set — skipping custom admin user creation"
+fi
+
 # --- Step 8: Patch flui-secrets ----------------------------------------------
 log "Patching flui-secrets..."
 kubectl patch secret flui-secrets -n flui-system --type merge \
