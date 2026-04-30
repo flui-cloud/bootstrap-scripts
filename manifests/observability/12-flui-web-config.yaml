@@ -17,9 +17,10 @@ metadata:
 data:
   config.json: |
     {
-      "apiUrl": "http://${MASTER_IP}:30080",
+      "apiBaseUrl": "http://${MASTER_IP}:30080",
       "wsUrl": "ws://${MASTER_IP}:30080",
       "authMode": "${AUTH_MODE}",
       "oidcIssuer": "${OIDC_ISSUER}",
-      "oidcClientId": "${OIDC_AUDIENCE}"
+      "oidcClientId": "${OIDC_AUDIENCE}",
+      "certificateMode": "${CERTIFICATE_MODE}"
     }

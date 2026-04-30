@@ -107,7 +107,7 @@ data:
       # Dynamically discovers VPS servers, K3s cluster nodes, and build agents
       - job_name: 'flui-infrastructure'
         http_sd_configs:
-          - url: 'http://flui-api:3000/api/v1/observability/prometheus/targets'
+          - url: '${FLUI_API_ENDPOINT}/api/v1/observability/prometheus/targets'
             refresh_interval: 30s
         relabel_configs:
           - source_labels: [__meta_server_id]

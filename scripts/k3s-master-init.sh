@@ -20,6 +20,10 @@ MANIFESTS_BASE_URL="${MANIFESTS_BASE_URL:-https://raw.githubusercontent.com/flui
 # Auth mode: "local" (built-in JWT, no Zitadel) or "oidc" (Zitadel/external OIDC provider)
 AUTH_MODE="${AUTH_MODE:-local}"
 
+# Certificate mode for the dashboard: "staging" (Let's Encrypt staging only),
+# "preflight" (staging then auto-promote to production), or "production" (production directly)
+CERTIFICATE_MODE="${CERTIFICATE_MODE:-production}"
+
 # Multi-cluster observability configuration
 OBSERVABILITY_CLUSTER_IP="${OBSERVABILITY_CLUSTER_IP:-}"
 DEPLOY_MONITORING_AGENT="${DEPLOY_MONITORING_AGENT:-false}"
@@ -306,12 +310,29 @@ fi
 PRIMARY_IP=$(hostname -I | awk '{print $1}')
 log "Primary IP address: $PRIMARY_IP"
 
+# Resolve VNet private IP (preferred for K3s --node-ip / --advertise-address).
+# Hetzner exposes the private NIC as ens10; fall back to first RFC1918 address.
+if [ -z "${PRIVATE_IP:-}" ]; then
+  PRIVATE_IP=$(ip -4 -o addr show ens10 2>/dev/null | awk '{print $4}' | cut -d/ -f1 || true)
+  if [ -z "${PRIVATE_IP:-}" ]; then
+    PRIVATE_IP=$(ip -4 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1 \
+      | grep -E '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' | head -1 || true)
+  fi
+fi
+log "VNet private IP: ${PRIVATE_IP:-(not detected)}"
+
+K3S_NODE_IP_FLAGS=""
+if [ -n "${PRIVATE_IP:-}" ]; then
+  K3S_NODE_IP_FLAGS="--node-ip=$PRIVATE_IP --advertise-address=$PRIVATE_IP --flannel-iface=ens10"
+  log "K3s will bind to private IP $PRIVATE_IP via ens10"
+fi
+
 # Install K3s as server (master)
 log "Installing K3s server..."
 log "K3s version: $K3S_VERSION"
 log "Node name: $INSTANCE_NAME"
 log "Flannel backend: vxlan"
-log "TLS SAN: $PRIMARY_IP"
+log "TLS SAN: $PRIMARY_IP${PRIVATE_IP:+,$PRIVATE_IP}"
 
 # Capture K3s installation output
 K3S_INSTALL_LOG="/var/log/k3s-install.log"
@@ -326,6 +347,8 @@ curl -sfL https://get.k3s.io | \
   --node-name="$INSTANCE_NAME" \
   --flannel-backend=vxlan \
   --tls-san="$PRIMARY_IP" \
+  ${PRIVATE_IP:+--tls-san="$PRIVATE_IP"} \
+  $K3S_NODE_IP_FLAGS \
   --write-kubeconfig-mode=644 2>&1 | tee "$K3S_INSTALL_LOG" || {
     log "K3s installation failed! See $K3S_INSTALL_LOG for details"
     log "Last 50 lines of installation log:"
@@ -722,7 +745,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
     export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
     export OIDC_ISSUER OIDC_JWKS_URI OIDC_AUDIENCE
-    export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD
+    export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD CERTIFICATE_MODE
 
     # Create manifests directory for K3s auto-deploy
     MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
@@ -757,7 +780,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
             export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
             export OIDC_ISSUER OIDC_JWKS_URI OIDC_AUDIENCE
-            export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD
+            export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD CERTIFICATE_MODE
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         else
             log "⚠️  envsubst not found, using sed for variable substitution..."
@@ -782,6 +805,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s/\${ZITADEL_ADMIN_TEMP_PASSWORD}/$ZITADEL_ADMIN_TEMP_PASSWORD/g" \
                 -e "s/\${ZITADEL_AUDIENCE}/$ZITADEL_AUDIENCE/g" \
                 -e "s/\${AUTH_MODE}/$AUTH_MODE/g" \
+                -e "s/\${CERTIFICATE_MODE}/$CERTIFICATE_MODE/g" \
                 -e "s|\${JWT_SECRET}|$JWT_SECRET|g" \
                 -e "s/\${ADMIN_EMAIL}/$ADMIN_EMAIL/g" \
                 -e "s|\${ADMIN_PASSWORD}|$ADMIN_PASSWORD|g" \

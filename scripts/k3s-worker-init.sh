@@ -245,6 +245,22 @@ done
 
 log "Master is reachable at $MASTER_IP:6443"
 
+# Resolve VNet private IP for K3s --node-ip (Hetzner private NIC = ens10).
+if [ -z "${PRIVATE_IP:-}" ]; then
+  PRIVATE_IP=$(ip -4 -o addr show ens10 2>/dev/null | awk '{print $4}' | cut -d/ -f1 || true)
+  if [ -z "${PRIVATE_IP:-}" ]; then
+    PRIVATE_IP=$(ip -4 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1 \
+      | grep -E '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' | head -1 || true)
+  fi
+fi
+log "VNet private IP: ${PRIVATE_IP:-(not detected)}"
+
+K3S_NODE_IP_FLAGS=""
+if [ -n "${PRIVATE_IP:-}" ]; then
+  K3S_NODE_IP_FLAGS="--node-ip=$PRIVATE_IP --flannel-iface=ens10"
+  log "K3s agent will bind to private IP $PRIVATE_IP via ens10"
+fi
+
 # Install K3s as agent (worker)
 log "Installing K3s agent..."
 curl -sfL https://get.k3s.io | \
@@ -252,7 +268,8 @@ curl -sfL https://get.k3s.io | \
   sh -s - agent \
   --server "$K3S_URL" \
   --token "$K3S_TOKEN" \
-  --node-name="$INSTANCE_NAME" || error "Failed to install K3s agent"
+  --node-name="$INSTANCE_NAME" \
+  $K3S_NODE_IP_FLAGS || error "Failed to install K3s agent"
 
 # Wait for K3s agent service to be active
 log "Waiting for K3s agent service to be active..."
