@@ -722,6 +722,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             export OIDC_ISSUER OIDC_JWKS_URI OIDC_AUDIENCE
             export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD CERTIFICATE_MODE
             export FLUI_BASE_DOMAIN
+            export FLUI_BOOTSTRAP_NODE_PRIVATE_IP="${PRIVATE_IP:-}"
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         else
             log "⚠️  envsubst not found, using sed for variable substitution..."
