@@ -185,10 +185,13 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "false" ] && [ -n "$OBSERVABILITY_CLUSTER_I
     export LOKI_ENDPOINT="${OBSERVABILITY_CLUSTER_IP}:30100"
     log "Loki endpoint (VNet): ${LOKI_ENDPOINT}"
 else
-    export LOKI_ENDPOINT="loki.flui-observability.svc.cluster.local:3100"
+    # OBS cluster: Vector runs as host systemd service (not in K8s), so it cannot
+    # resolve the cluster-internal DNS. Use the local NodePort instead — it is
+    # exposed on every node and always reachable from localhost.
+    export LOKI_ENDPOINT="localhost:30100"
 fi
 
-export PROMETHEUS_ENDPOINT="prometheus.flui-observability.svc.cluster.local:9090"
+export PROMETHEUS_ENDPOINT="vmsingle.flui-observability.svc.cluster.local:8428"
 export FLUI_API_ENDPOINT="${FLUI_API_ENDPOINT:-http://localhost:3000}"
 if [[ -z "$SERVER_ID" ]]; then
     error "SERVER_ID not provided - this should be the database node ID from infrastructure_cluster_nodes table"
@@ -697,7 +700,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     export CLUSTER_TYPE="observability"
     export REMOTE_WRITE_URL="http://vmsingle.flui-observability.svc.cluster.local:8428/api/v1/write"
 
-    MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 00a-traefik-config"
+    MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 00a-traefik-config"
     if [ "$AUTH_MODE" = "oidc" ]; then
         MANIFESTS="$MANIFESTS 11-zitadel"
         log "AUTH_MODE=oidc: Zitadel will be deployed"
@@ -893,6 +896,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     PID_VMSINGLE=$!
     kubectl wait --for=condition=ready pod -l app=vmagent -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
     PID_VMAGENT=$!
+    kubectl wait --for=condition=ready pod -l app=vmalert -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
+    PID_VMALERT=$!
     kubectl wait --for=condition=ready pod -l app=kube-state-metrics -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
     PID_KSM=$!
     kubectl wait --for=condition=ready pod -l app=loki -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
@@ -908,6 +913,10 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     if wait $PID_VMAGENT; then log "✅ vmagent is ready"; else
         error_msg="vmagent failed to become ready within ${COMPONENT_TIMEOUT}s"
         update_health "failed" "vmagent" "$error_msg"; error "$error_msg"
+    fi
+
+    if wait $PID_VMALERT; then log "✅ vmalert is ready"; else
+        warn "vmalert failed to become ready within ${COMPONENT_TIMEOUT}s (recording rules unavailable)"
     fi
     if wait $PID_KSM; then log "✅ kube-state-metrics is ready"; else
         warn "kube-state-metrics did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"

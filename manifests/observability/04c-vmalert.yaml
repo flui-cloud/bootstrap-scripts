@@ -1,0 +1,330 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmalert-rules
+  namespace: flui-observability
+  labels:
+    app: vmalert
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/managed-by: flui-cloud
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+data:
+  recording_rules.yml: |
+    groups:
+      - name: flui_app_cpu
+        interval: 30s
+        rules:
+          - record: flui:app_cpu_usage_cores
+            expr: |
+              sum by (namespace, label_app_kubernetes_io_name) (
+                rate(container_cpu_usage_seconds_total{
+                  image!="",
+                  container!="POD",
+                  container!=""
+                }[5m])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_cpu_requests_cores
+            expr: |
+              sum by (namespace, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_requests{resource="cpu"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_cpu_limits_cores
+            expr: |
+              sum by (namespace, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_limits{resource="cpu"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_cpu_utilization_percent
+            expr: |
+              (flui:app_cpu_usage_cores / flui:app_cpu_limits_cores) * 100
+          - record: flui:app_cpu_usage_cores_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                rate(container_cpu_usage_seconds_total{
+                  image!="",
+                  container!="POD",
+                  container!=""
+                }[5m])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_cpu_requests_cores_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_requests{resource="cpu"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_cpu_limits_cores_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_limits{resource="cpu"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_cpu_utilization_percent_by_pod
+            expr: |
+              (flui:app_cpu_usage_cores_by_pod / flui:app_cpu_limits_cores_by_pod) * 100
+
+      - name: flui_app_memory
+        interval: 30s
+        rules:
+          - record: flui:app_memory_usage_bytes
+            expr: |
+              sum by (namespace, label_app_kubernetes_io_name) (
+                container_memory_working_set_bytes{
+                  image!="",
+                  container!="POD",
+                  container!=""
+                }
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_memory_requests_bytes
+            expr: |
+              sum by (namespace, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_requests{resource="memory"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_memory_limits_bytes
+            expr: |
+              sum by (namespace, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_limits{resource="memory"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_memory_utilization_percent
+            expr: |
+              (flui:app_memory_usage_bytes / flui:app_memory_limits_bytes) * 100
+          - record: flui:app_memory_usage_bytes_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                container_memory_working_set_bytes{
+                  image!="",
+                  container!="POD",
+                  container!=""
+                }
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_memory_requests_bytes_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_requests{resource="memory"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_memory_limits_bytes_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_container_resource_limits{resource="memory"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_memory_utilization_percent_by_pod
+            expr: |
+              (flui:app_memory_usage_bytes_by_pod / flui:app_memory_limits_bytes_by_pod) * 100
+
+      - name: flui_app_network
+        interval: 30s
+        rules:
+          - record: flui:app_network_receive_bytes_rate
+            expr: |
+              sum by (namespace, label_app_kubernetes_io_name) (
+                rate(container_network_receive_bytes_total{interface="eth0"}[5m])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_network_transmit_bytes_rate
+            expr: |
+              sum by (namespace, label_app_kubernetes_io_name) (
+                rate(container_network_transmit_bytes_total{interface="eth0"}[5m])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_network_receive_bytes_rate_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                rate(container_network_receive_bytes_total{interface="eth0"}[5m])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_network_transmit_bytes_rate_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                rate(container_network_transmit_bytes_total{interface="eth0"}[5m])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+      - name: flui_app_status
+        interval: 15s
+        rules:
+          - record: flui:app_replicas_desired
+            expr: |
+              sum by (namespace, deployment) (
+                kube_deployment_spec_replicas
+                * on (namespace, deployment) group_left()
+                label_replace(
+                  kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"},
+                  "deployment", "$1", "deployment", "(.*)"
+                )
+              )
+          - record: flui:app_replicas_ready
+            expr: |
+              sum by (namespace, deployment) (
+                kube_deployment_status_replicas_ready
+                * on (namespace, deployment) group_left()
+                label_replace(
+                  kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"},
+                  "deployment", "$1", "deployment", "(.*)"
+                )
+              )
+          - record: flui:app_replicas_unavailable
+            expr: |
+              sum by (namespace, deployment) (
+                kube_deployment_status_replicas_unavailable
+                * on (namespace, deployment) group_left()
+                label_replace(
+                  kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"},
+                  "deployment", "$1", "deployment", "(.*)"
+                )
+              )
+          - record: flui:app_status_ready_ratio
+            expr: |
+              flui:app_replicas_ready / flui:app_replicas_desired
+          - record: flui:app_up
+            expr: |
+              (flui:app_replicas_ready == flui:app_replicas_desired)
+              and
+              (flui:app_replicas_desired > 0)
+          - record: flui:app_restart_total
+            expr: |
+              sum by (namespace, label_app_kubernetes_io_name) (
+                kube_pod_container_status_restarts_total
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_restart_rate_1h
+            expr: |
+              sum by (namespace, label_app_kubernetes_io_name) (
+                increase(kube_pod_container_status_restarts_total[1h])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_restart_total_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_container_status_restarts_total
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_restart_rate_1h_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                increase(kube_pod_container_status_restarts_total[1h])
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_pod_ready_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name) (
+                kube_pod_status_ready{condition="true"}
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_pod_phase_by_pod
+            expr: |
+              sum by (namespace, pod, label_app_kubernetes_io_name, phase) (
+                (kube_pod_status_phase{phase=~"Running|Pending|Failed|Succeeded|Unknown"} > 0)
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
+      - name: flui_app_pods
+        interval: 30s
+        rules:
+          - record: flui:app_pods_by_phase
+            expr: |
+              sum by (namespace, label_app_kubernetes_io_name, phase) (
+                (kube_pod_status_phase{phase=~"Running|Pending|Failed|Succeeded|Unknown"} > 0)
+                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmalert
+  namespace: flui-observability
+  labels:
+    app: vmalert
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: vmalert
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vmalert
+  template:
+    metadata:
+      labels:
+        app: vmalert
+        app.kubernetes.io/name: vmalert
+        app.kubernetes.io/managed-by: flui-cloud
+        app.kubernetes.io/instance: vmalert
+    spec:
+      containers:
+        - name: vmalert
+          image: victoriametrics/vmalert:v1.99.0
+          args:
+            - '-rule=/etc/vmalert/recording_rules.yml'
+            - '-datasource.url=http://vmsingle.flui-observability.svc.cluster.local:8428'
+            - '-remoteWrite.url=http://vmsingle.flui-observability.svc.cluster.local:8428'
+            - '-evaluationInterval=30s'
+            - '-httpListenAddr=:8880'
+          ports:
+            - name: http
+              containerPort: 8880
+          volumeMounts:
+            - name: rules
+              mountPath: /etc/vmalert
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "20m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8880
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8880
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: rules
+          configMap:
+            name: vmalert-rules
