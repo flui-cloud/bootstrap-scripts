@@ -666,7 +666,13 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
 
     PRIMARY_IP=$(hostname -I | awk '{print $1}')
     export MASTER_IP="$PRIMARY_IP"
-    FLUI_BASE_DOMAIN="${FLUI_BASE_DOMAIN:-${PRIMARY_IP}.nip.io}"
+    if [ -z "$FLUI_BASE_DOMAIN" ]; then
+        if [ -n "$NIP_HOSTNAME_TOKEN" ]; then
+            FLUI_BASE_DOMAIN="${NIP_HOSTNAME_TOKEN}.${PRIMARY_IP}.nip.io"
+        else
+            FLUI_BASE_DOMAIN="${PRIMARY_IP}.nip.io"
+        fi
+    fi
     export FLUI_BASE_DOMAIN
     log "FLUI_BASE_DOMAIN: $FLUI_BASE_DOMAIN (api.$FLUI_BASE_DOMAIN, app.$FLUI_BASE_DOMAIN)"
     if [ "$AUTH_MODE" = "oidc" ] && [ -z "$ZITADEL_DOMAIN" ]; then

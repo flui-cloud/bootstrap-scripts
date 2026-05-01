@@ -170,6 +170,7 @@ CLI_REDIRECTS=$(jq -nc '[
 CLI_SEARCH=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/${PROJECT_ID}/apps/_search" \
   -d '{"queries":[{"nameQuery":{"name":"Flui CLI","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
 CLI_APP_ID=$(echo "$CLI_SEARCH" | jq -r '.result[0].id // empty')
+CLI_CLIENT_ID=$(echo "$CLI_SEARCH" | jq -r '.result[0].oidcConfig.clientId // empty')
 
 if [ -z "$CLI_APP_ID" ]; then
   CREATE=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/${PROJECT_ID}/apps/oidc" \
@@ -188,10 +189,11 @@ if [ -z "$CLI_APP_ID" ]; then
       devMode: true
     }')")
   CLI_APP_ID=$(echo "$CREATE" | jq -r '.appId // empty')
+  CLI_CLIENT_ID=$(echo "$CREATE" | jq -r '.clientId // empty')
   [ -z "$CLI_APP_ID" ] && error "Failed to create Flui CLI app: ${CREATE}"
-  ok "Flui CLI app created: ${CLI_APP_ID}"
+  ok "Flui CLI app created: ${CLI_APP_ID} (client ${CLI_CLIENT_ID})"
 else
-  ok "Flui CLI app found: ${CLI_APP_ID}"
+  ok "Flui CLI app found: ${CLI_APP_ID} (client ${CLI_CLIENT_ID})"
 fi
 
 # --- Step 7: Grant admin role to flui-admin ----------------------------------
@@ -259,7 +261,7 @@ fi
 # --- Step 8: Patch flui-secrets ----------------------------------------------
 log "Patching flui-secrets..."
 kubectl patch secret flui-secrets -n flui-system --type merge \
-  -p "{\"stringData\":{\"OIDC_AUDIENCE\":\"${WEB_CLIENT_ID}\",\"OIDC_CLI_CLIENT_ID\":\"${CLI_APP_ID}\",\"ZITADEL_SERVICE_ACCOUNT_PAT\":\"${PAT}\"}}"
+  -p "{\"stringData\":{\"OIDC_AUDIENCE\":\"${WEB_CLIENT_ID}\",\"ZITADEL_SERVICE_ACCOUNT_PAT\":\"${PAT}\"}}"
 ok "flui-secrets patched"
 
 # --- Step 9: Patch flui-web-config -------------------------------------------
@@ -286,6 +288,7 @@ cm = json.load(sys.stdin)
 cm['data']['AUTH_MODE'] = 'oidc'
 cm['data']['OIDC_ISSUER'] = 'https://${ZITADEL_DOMAIN}'
 cm['data']['OIDC_JWKS_URI'] = 'http://zitadel.flui-system.svc.cluster.local:8080/oauth/v2/keys'
+cm['data']['OIDC_CLI_CLIENT_ID'] = '${CLI_CLIENT_ID}'
 cm['data'].pop('ZITADEL_ISSUER', None)
 cm['data'].pop('ZITADEL_JWKS_URI', None)
 cm.get('metadata', {}).pop('managedFields', None)
@@ -309,5 +312,5 @@ echo "=============================================="
 echo "  Zitadel OIDC setup complete!"
 echo "=============================================="
 echo "  Web Client ID:  ${WEB_CLIENT_ID}"
-echo "  CLI App ID:     ${CLI_APP_ID}"
+echo "  CLI Client ID:  ${CLI_CLIENT_ID}"
 echo "  Project ID:     ${PROJECT_ID}"
