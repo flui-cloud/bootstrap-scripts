@@ -189,34 +189,25 @@ if [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
 fi
 
 # ============================================================
-# STEP 2: Install kubectl
+# STEP 2: Install kubectl (non-fatal — workers don't need it to run the K3s agent)
 # ============================================================
+install_kubectl_via_curl() {
+    local v
+    v=$(curl -fsSL https://dl.k8s.io/release/stable.txt 2>/dev/null) || return 1
+    curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${v}/bin/linux/amd64/kubectl" || return 1
+    chmod +x /usr/local/bin/kubectl
+}
+
 log "Installing kubectl for cluster interaction..."
+export PATH="$PATH:/snap/bin"
+hash -r 2>/dev/null || true
 
-# Install kubectl via snap (fast, always up-to-date)
-if ! command -v snap &> /dev/null; then
-    log "snap not available, installing kubectl via curl..."
-    KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
-    curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-    chmod +x kubectl
-    mv kubectl /usr/local/bin/kubectl
+if install_kubectl_via_curl; then
+    log "✅ kubectl installed at /usr/local/bin/kubectl"
+elif command -v snap &>/dev/null && snap install kubectl --classic >>"$LOG_FILE" 2>&1; then
+    log "✅ kubectl installed via snap"
 else
-    log "Installing kubectl via snap..."
-    snap install kubectl --classic 2>&1 | tee -a "$LOG_FILE" || {
-        warn "snap install failed, trying curl method..."
-        KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
-        curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-        chmod +x kubectl
-        mv kubectl /usr/local/bin/kubectl
-    }
-fi
-
-# Verify kubectl installation
-if command -v kubectl &> /dev/null; then
-    KUBECTL_VERSION=$(kubectl version --client --short 2>/dev/null || kubectl version --client 2>&1 | head -1)
-    log "✅ kubectl installed: $KUBECTL_VERSION"
-else
-    error "kubectl installation failed"
+    warn "kubectl installation failed — worker will run without kubectl. K3s agent install will continue."
 fi
 
 # ============================================================
