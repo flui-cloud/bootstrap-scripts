@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vmagent
+  namespace: flui-observability
+  labels:
+    app: vmagent
+    app.kubernetes.io/name: vmagent
+    app.kubernetes.io/managed-by: flui-cloud
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vmagent
+  labels:
+    app: vmagent
+    app.kubernetes.io/name: vmagent
+    app.kubernetes.io/managed-by: flui-cloud
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "nodes/metrics", "pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vmagent
+  labels:
+    app: vmagent
+    app.kubernetes.io/name: vmagent
+    app.kubernetes.io/managed-by: flui-cloud
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vmagent
+subjects:
+  - kind: ServiceAccount
+    name: vmagent
+    namespace: flui-observability
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmagent
+  namespace: flui-observability
+  labels:
+    app: vmagent
+    app.kubernetes.io/name: vmagent
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: vmagent
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vmagent
+  template:
+    metadata:
+      labels:
+        app: vmagent
+        app.kubernetes.io/name: vmagent
+        app.kubernetes.io/managed-by: flui-cloud
+        app.kubernetes.io/instance: vmagent
+    spec:
+      serviceAccountName: vmagent
+      containers:
+        - name: vmagent
+          image: victoriametrics/vmagent:v1.99.0
+          args:
+            - '-promscrape.config=/etc/vmagent/vmagent.yaml'
+            - '-remoteWrite.url=${REMOTE_WRITE_URL}'
+            - '-remoteWrite.tmpDataPath=/buffer'
+            - '-promscrape.config.strictParse=false'
+          env:
+            - name: REMOTE_WRITE_URL
+              value: "${REMOTE_WRITE_URL}"
+          ports:
+            - name: http
+              containerPort: 8429
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vmagent
+            - name: buffer
+              mountPath: /buffer
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "20m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8429
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8429
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: vmagent-config
+        - name: buffer
+          emptyDir: {}

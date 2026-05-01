@@ -18,14 +18,14 @@ data:
   datasources.yml: |
     apiVersion: 1
     datasources:
-      - name: Prometheus
+      - name: VictoriaMetrics
         type: prometheus
         access: proxy
-        url: http://prometheus:9090
+        url: http://vmsingle:8428
         isDefault: true
         editable: true
         jsonData:
-          timeInterval: "15s"
+          timeInterval: "30s"
 
       - name: Loki
         type: loki

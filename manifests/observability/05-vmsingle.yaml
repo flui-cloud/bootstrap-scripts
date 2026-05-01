@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmsingle
+  namespace: flui-observability
+  labels:
+    app: vmsingle
+    app.kubernetes.io/name: vmsingle
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: vmsingle
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 8428
+      targetPort: 8428
+      nodePort: 30428
+  selector:
+    app: vmsingle
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmsingle
+  namespace: flui-observability
+  labels:
+    app: vmsingle
+    app.kubernetes.io/name: vmsingle
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: vmsingle
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: vmsingle
+  template:
+    metadata:
+      labels:
+        app: vmsingle
+        app.kubernetes.io/name: vmsingle
+        app.kubernetes.io/managed-by: flui-cloud
+        app.kubernetes.io/instance: vmsingle
+    spec:
+      containers:
+        - name: vmsingle
+          image: victoriametrics/victoria-metrics:v1.99.0
+          args:
+            - '-storageDataPath=/storage'
+            - '-retentionPeriod=15d'
+            - '-httpListenAddr=:8428'
+          ports:
+            - name: http
+              containerPort: 8428
+          volumeMounts:
+            - name: storage
+              mountPath: /storage
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8428
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8428
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: storage
+          emptyDir: {}

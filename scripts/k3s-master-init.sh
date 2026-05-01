@@ -690,9 +690,14 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
 
     log "Manifest directory: $MANIFEST_DIR"
     log "Downloading manifests from: $MANIFESTS_BASE_URL/observability/"
-    log "Deploying components: namespace, postgres, redis, prometheus, loki, grafana"
+    log "Deploying components: namespace, postgres, redis, vmsingle, vmagent, loki, grafana"
 
-    MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-prometheus-config 04a-kube-state-metrics 05-prometheus 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 00a-traefik-config"
+    # Metrics stack: vmsingle (TSDB + receiver) + vmagent (scraper, push to vmsingle).
+    # Replaces Prometheus on new clusters per ADR-001-metrics-transport.
+    export CLUSTER_TYPE="observability"
+    export REMOTE_WRITE_URL="http://vmsingle.flui-observability.svc.cluster.local:8428/api/v1/write"
+
+    MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 00a-traefik-config"
     if [ "$AUTH_MODE" = "oidc" ]; then
         MANIFESTS="$MANIFESTS 11-zitadel"
         log "AUTH_MODE=oidc: Zitadel will be deployed"
@@ -707,7 +712,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         fi
 
         if command -v envsubst &> /dev/null; then
-            export CLUSTER_ID SERVER_ID CLUSTER_NAME CLOUD_PROVIDER
+            export CLUSTER_ID SERVER_ID CLUSTER_NAME CLOUD_PROVIDER CLUSTER_TYPE
+            export REMOTE_WRITE_URL
             export ZITADEL_MASTERKEY ZITADEL_DB_ADMIN_PASSWORD ZITADEL_DB_USER_PASSWORD
             export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
             export OIDC_ISSUER OIDC_JWKS_URI OIDC_AUDIENCE
@@ -880,11 +886,13 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         error "$error_msg"
     fi
 
-    log "→ Waiting for Prometheus, kube-state-metrics, Loki, Grafana (parallel)..."
+    log "→ Waiting for vmsingle, vmagent, kube-state-metrics, Loki, Grafana (parallel)..."
     update_health "deploying" "observability-components" ""
 
-    kubectl wait --for=condition=ready pod -l app=prometheus -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
-    PID_PROMETHEUS=$!
+    kubectl wait --for=condition=ready pod -l app=vmsingle -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
+    PID_VMSINGLE=$!
+    kubectl wait --for=condition=ready pod -l app=vmagent -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
+    PID_VMAGENT=$!
     kubectl wait --for=condition=ready pod -l app=kube-state-metrics -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
     PID_KSM=$!
     kubectl wait --for=condition=ready pod -l app=loki -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
@@ -892,9 +900,14 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     kubectl wait --for=condition=ready pod -l app=grafana -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
     PID_GRAFANA=$!
 
-    if wait $PID_PROMETHEUS; then log "✅ Prometheus is ready"; else
-        error_msg="Prometheus failed to become ready within ${COMPONENT_TIMEOUT}s"
-        update_health "failed" "prometheus" "$error_msg"; error "$error_msg"
+    if wait $PID_VMSINGLE; then log "✅ vmsingle is ready"; else
+        error_msg="vmsingle failed to become ready within ${COMPONENT_TIMEOUT}s"
+        update_health "failed" "vmsingle" "$error_msg"; error "$error_msg"
+    fi
+
+    if wait $PID_VMAGENT; then log "✅ vmagent is ready"; else
+        error_msg="vmagent failed to become ready within ${COMPONENT_TIMEOUT}s"
+        update_health "failed" "vmagent" "$error_msg"; error "$error_msg"
     fi
     if wait $PID_KSM; then log "✅ kube-state-metrics is ready"; else
         warn "kube-state-metrics did not become ready within ${COMPONENT_TIMEOUT}s (non-critical)"
@@ -968,7 +981,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "Service Endpoints"
     log "=========================================="
     log "Grafana:    cluster-internal only (kubectl port-forward grafana)"
-    log "Prometheus: cluster-internal only (kubectl port-forward prometheus)"
+    log "vmsingle:   NodePort 30428 (remote_write receiver, VNet-private)"
     log "PostgreSQL: postgres:5432 (fluicloud/$POSTGRES_PASSWORD) — cluster-internal"
     log "Redis:      redis:6379 (password: $REDIS_PASSWORD) — cluster-internal"
     log "Loki:       cluster-internal only"
@@ -994,6 +1007,33 @@ else
     log "This is a workload cluster - observability stack will not be deployed"
     log "K3s cluster is ready for workload deployment"
     log ""
+
+    # Workload metrics push: vmagent in flui-monitoring namespace remote_writes
+    # to vmsingle on the OBS cluster via VNet-private NodePort 30428.
+    # Only deployed when DEPLOY_MONITORING_AGENT=true and OBSERVABILITY_CLUSTER_IP set.
+    if [ "$DEPLOY_MONITORING_AGENT" = "true" ] && [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
+        log "→ Deploying workload vmagent (push to ${OBSERVABILITY_CLUSTER_IP}:30428)..."
+        MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
+        mkdir -p "$MANIFEST_DIR"
+        export REMOTE_WRITE_URL="http://${OBSERVABILITY_CLUSTER_IP}:30428/api/v1/write"
+        export CLUSTER_ID CLUSTER_NAME REMOTE_WRITE_URL
+        if curl -fsSL "$MANIFESTS_BASE_URL/workload/vmagent.yaml" -o /tmp/vmagent.yaml; then
+            if command -v envsubst &> /dev/null; then
+                envsubst < /tmp/vmagent.yaml > "$MANIFEST_DIR/vmagent.yaml"
+            else
+                sed -e "s|\${REMOTE_WRITE_URL}|$REMOTE_WRITE_URL|g" \
+                    -e "s/\${CLUSTER_ID}/$CLUSTER_ID/g" \
+                    -e "s/\${CLUSTER_NAME}/$CLUSTER_NAME/g" \
+                    /tmp/vmagent.yaml > "$MANIFEST_DIR/vmagent.yaml"
+            fi
+            log "✅ Workload vmagent manifest deployed"
+            rm -f /tmp/vmagent.yaml
+        else
+            warn "Failed to download workload vmagent manifest — metrics push disabled"
+        fi
+    else
+        log "ℹ Skipping workload vmagent (DEPLOY_MONITORING_AGENT=$DEPLOY_MONITORING_AGENT, OBSERVABILITY_CLUSTER_IP=${OBSERVABILITY_CLUSTER_IP:-empty})"
+    fi
 
     update_health "ready" "k3s-only" ""
 fi
