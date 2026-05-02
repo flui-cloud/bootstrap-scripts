@@ -666,11 +666,15 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
 
     PRIMARY_IP=$(hostname -I | awk '{print $1}')
     export MASTER_IP="$PRIMARY_IP"
+    # Encode IP with dashes so a numeric-suffixed token (e.g. "royal-gecko-72")
+    # cannot collide with nip.io's greedy IPv4 extraction (which would otherwise
+    # resolve royal-gecko-72.162.55.56.10.nip.io to 72.162.55.56).
+    DASHED_IP="${PRIMARY_IP//./-}"
     if [ -z "${FLUI_BASE_DOMAIN:-}" ]; then
         if [ -n "${NIP_HOSTNAME_TOKEN:-}" ]; then
-            FLUI_BASE_DOMAIN="${NIP_HOSTNAME_TOKEN}.${PRIMARY_IP}.nip.io"
+            FLUI_BASE_DOMAIN="${NIP_HOSTNAME_TOKEN}.${DASHED_IP}.nip.io"
         else
-            FLUI_BASE_DOMAIN="${PRIMARY_IP}.nip.io"
+            FLUI_BASE_DOMAIN="${DASHED_IP}.nip.io"
         fi
     fi
     export FLUI_BASE_DOMAIN NIP_HOSTNAME_TOKEN

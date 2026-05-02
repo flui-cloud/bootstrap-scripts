@@ -39,11 +39,12 @@ fi
 # --- Discover cluster info ---------------------------------------------------
 MASTER_IP="${MASTER_IP:-$(hostname -I | awk '{print $1}')}"
 NIP_HOSTNAME_TOKEN="${NIP_HOSTNAME_TOKEN:-}"
+DASHED_IP="${MASTER_IP//./-}"
 if [ -z "${FLUI_BASE_DOMAIN:-}" ]; then
   if [ -n "$NIP_HOSTNAME_TOKEN" ]; then
-    FLUI_BASE_DOMAIN="${NIP_HOSTNAME_TOKEN}.${MASTER_IP}.nip.io"
+    FLUI_BASE_DOMAIN="${NIP_HOSTNAME_TOKEN}.${DASHED_IP}.nip.io"
   else
-    FLUI_BASE_DOMAIN="${MASTER_IP}.nip.io"
+    FLUI_BASE_DOMAIN="${DASHED_IP}.nip.io"
   fi
 fi
 ZITADEL_DOMAIN="${ZITADEL_DOMAIN:-auth.${FLUI_BASE_DOMAIN}}"
