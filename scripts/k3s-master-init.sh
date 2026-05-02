@@ -666,8 +666,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
 
     PRIMARY_IP=$(hostname -I | awk '{print $1}')
     export MASTER_IP="$PRIMARY_IP"
-    if [ -z "$FLUI_BASE_DOMAIN" ]; then
-        if [ -n "$NIP_HOSTNAME_TOKEN" ]; then
+    if [ -z "${FLUI_BASE_DOMAIN:-}" ]; then
+        if [ -n "${NIP_HOSTNAME_TOKEN:-}" ]; then
             FLUI_BASE_DOMAIN="${NIP_HOSTNAME_TOKEN}.${PRIMARY_IP}.nip.io"
         else
             FLUI_BASE_DOMAIN="${PRIMARY_IP}.nip.io"
