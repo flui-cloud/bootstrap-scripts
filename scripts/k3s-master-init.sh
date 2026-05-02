@@ -673,7 +673,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             FLUI_BASE_DOMAIN="${PRIMARY_IP}.nip.io"
         fi
     fi
-    export FLUI_BASE_DOMAIN
+    export FLUI_BASE_DOMAIN NIP_HOSTNAME_TOKEN
     log "FLUI_BASE_DOMAIN: $FLUI_BASE_DOMAIN (api.$FLUI_BASE_DOMAIN, app.$FLUI_BASE_DOMAIN)"
     if [ "$AUTH_MODE" = "oidc" ] && [ -z "$ZITADEL_DOMAIN" ]; then
         ZITADEL_DOMAIN="auth.${FLUI_BASE_DOMAIN}"
@@ -727,7 +727,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             export ZITADEL_DOMAIN ZITADEL_ADMIN_EMAIL ZITADEL_ADMIN_TEMP_PASSWORD ZITADEL_AUDIENCE
             export OIDC_ISSUER OIDC_JWKS_URI OIDC_AUDIENCE
             export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD CERTIFICATE_MODE
-            export FLUI_BASE_DOMAIN
+            export FLUI_BASE_DOMAIN NIP_HOSTNAME_TOKEN
             export FLUI_BOOTSTRAP_NODE_PRIVATE_IP="${PRIVATE_IP:-}"
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         else
@@ -758,6 +758,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s/\${ADMIN_EMAIL}/$ADMIN_EMAIL/g" \
                 -e "s|\${ADMIN_PASSWORD}|$ADMIN_PASSWORD|g" \
                 -e "s/\${FLUI_BASE_DOMAIN}/$FLUI_BASE_DOMAIN/g" \
+                -e "s/\${NIP_HOSTNAME_TOKEN}/$NIP_HOSTNAME_TOKEN/g" \
                 "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         fi
 
@@ -829,7 +830,11 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for zitadel-bootstrap-pvc..."
                 until kubectl get pvc zitadel-bootstrap-pvc -n flui-system >/dev/null 2>&1; do sleep 2; done
                 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Running setup-zitadel-oidc.sh..."
-                MASTER_IP="$MASTER_IP" /tmp/setup-zitadel-oidc.sh
+                MASTER_IP="$MASTER_IP" \
+                    NIP_HOSTNAME_TOKEN="${NIP_HOSTNAME_TOKEN:-}" \
+                    FLUI_BASE_DOMAIN="${FLUI_BASE_DOMAIN:-}" \
+                    ZITADEL_DOMAIN="${ZITADEL_DOMAIN:-}" \
+                    /tmp/setup-zitadel-oidc.sh
                 echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ OIDC provisioning complete"
             ) > /var/log/flui-oidc-bootstrap.log 2>&1 &
             disown

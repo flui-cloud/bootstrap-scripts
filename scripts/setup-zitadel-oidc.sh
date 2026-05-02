@@ -38,11 +38,20 @@ fi
 
 # --- Discover cluster info ---------------------------------------------------
 MASTER_IP="${MASTER_IP:-$(hostname -I | awk '{print $1}')}"
-ZITADEL_DOMAIN="auth.${MASTER_IP}.nip.io"
+NIP_HOSTNAME_TOKEN="${NIP_HOSTNAME_TOKEN:-}"
+if [ -z "${FLUI_BASE_DOMAIN:-}" ]; then
+  if [ -n "$NIP_HOSTNAME_TOKEN" ]; then
+    FLUI_BASE_DOMAIN="${NIP_HOSTNAME_TOKEN}.${MASTER_IP}.nip.io"
+  else
+    FLUI_BASE_DOMAIN="${MASTER_IP}.nip.io"
+  fi
+fi
+ZITADEL_DOMAIN="${ZITADEL_DOMAIN:-auth.${FLUI_BASE_DOMAIN}}"
 ZITADEL_SVC="http://$(kubectl get svc zitadel -n flui-system -o jsonpath='{.spec.clusterIP}'):8080"
 
-log "Master IP:      ${MASTER_IP}"
-log "Zitadel domain: ${ZITADEL_DOMAIN}"
+log "Master IP:        ${MASTER_IP}"
+log "Flui base domain: ${FLUI_BASE_DOMAIN}"
+log "Zitadel domain:   ${ZITADEL_DOMAIN}"
 
 # --- Wait for Zitadel ready --------------------------------------------------
 log "Waiting for Zitadel readiness..."
@@ -120,11 +129,11 @@ done
 # --- Step 5: Create / update Flui Web OIDC SPA app ---------------------------
 log "Ensuring Flui Web OIDC app..."
 WEB_REDIRECTS=$(jq -nc \
-  --arg main "https://app.${MASTER_IP}.nip.io/auth/callback" \
+  --arg main "https://app.${FLUI_BASE_DOMAIN}/auth/callback" \
   --arg dev  "http://localhost:4200/auth/callback" \
   '[$main, $dev]')
 WEB_POST_LOGOUT=$(jq -nc \
-  --arg main "https://app.${MASTER_IP}.nip.io" \
+  --arg main "https://app.${FLUI_BASE_DOMAIN}" \
   --arg dev  "http://localhost:4200" \
   '[$main, $dev]')
 
