@@ -200,12 +200,23 @@ log "Using database node ID as SERVER_ID: $SERVER_ID"
 export SERVER_TYPE="k3s-master"
 export SERVER_ID
 
-# Export CA public key for SSH certificate authentication (if provided)
+# Export CA keys for SSH certificate authentication (if provided)
 if [[ -n "${FLUI_CA_PUBLIC_KEY:-}" ]]; then
     log "Exporting SSH CA public key for flui-init.sh..."
     export FLUI_CA_PUBLIC_KEY
+    export SSH_CA_PUBLIC_KEY="${FLUI_CA_PUBLIC_KEY}"
 else
     warn "FLUI_CA_PUBLIC_KEY not set - SSH certificate authentication will be skipped"
+fi
+
+# Pre-compute base64 of CA private key so it can be safely embedded in YAML
+# (raw PEM is multiline and would break YAML if substituted directly)
+if [[ -n "${SSH_CA_PRIVATE_KEY:-}" ]]; then
+    export SSH_CA_PRIVATE_KEY_B64
+    SSH_CA_PRIVATE_KEY_B64=$(printf '%s' "${SSH_CA_PRIVATE_KEY}" | base64 -w 0)
+else
+    export SSH_CA_PRIVATE_KEY_B64=""
+    warn "SSH_CA_PRIVATE_KEY not set — terminal SSH access will not work"
 fi
 
 if ! /tmp/flui-init.sh; then
