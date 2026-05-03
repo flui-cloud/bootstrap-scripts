@@ -134,9 +134,11 @@ WEB_REDIRECTS=$(jq -nc \
   --arg dev  "http://localhost:4200/auth/callback" \
   '[$main, $dev]')
 WEB_POST_LOGOUT=$(jq -nc \
-  --arg main "https://app.${FLUI_BASE_DOMAIN}" \
-  --arg dev  "http://localhost:4200" \
-  '[$main, $dev]')
+  --arg main  "https://app.${FLUI_BASE_DOMAIN}" \
+  --arg mainl "https://app.${FLUI_BASE_DOMAIN}/login?loggedOut=true" \
+  --arg dev   "http://localhost:4200" \
+  --arg devl  "http://localhost:4200/login?loggedOut=true" \
+  '[$main, $mainl, $dev, $devl]')
 
 APP_SEARCH=$(zitadel_api "${ZITADEL_SVC}/management/v1/projects/${PROJECT_ID}/apps/_search" \
   -d '{"queries":[{"nameQuery":{"name":"Flui Web","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
@@ -266,6 +268,49 @@ if [ -n "${ADMIN_EMAIL:-}" ] && [ -n "${ADMIN_PASSWORD:-}" ]; then
   fi
 else
   warn "ADMIN_EMAIL or ADMIN_PASSWORD not set — skipping custom admin user creation"
+fi
+
+# --- Step 7.6: Ensure email/name claim action --------------------------------
+log "Ensuring email claim action in Zitadel..."
+EMAIL_ACTION_NAME="fluiAddEmailClaim"
+EMAIL_ACTION_SCRIPT='function fluiAddEmailClaim(ctx, api) {
+  var human = ctx.v1 && ctx.v1.user && ctx.v1.user.human;
+  if (!human) { return; }
+  if (human.email && human.email.address) {
+    api.v1.claims.setClaim("email", human.email.address);
+    api.v1.claims.setClaim("email_verified", human.email.isVerified === true);
+  }
+  var profile = human.profile;
+  if (profile) {
+    var parts = [profile.firstName, profile.lastName].filter(function(p) { return !!p; });
+    if (parts.length > 0) { api.v1.claims.setClaim("name", parts.join(" ")); }
+    if (profile.firstName) { api.v1.claims.setClaim("given_name", profile.firstName); }
+    if (profile.lastName) { api.v1.claims.setClaim("family_name", profile.lastName); }
+  }
+}'
+
+ACTION_SEARCH=$(zitadel_api "${ZITADEL_SVC}/management/v1/actions/_search" \
+  -d '{"query":{"limit":100}}')
+EMAIL_ACTION_ID=$(echo "$ACTION_SEARCH" | \
+  jq -r --arg n "$EMAIL_ACTION_NAME" '.result[]? | select(.name==$n) | .id // empty' | head -1)
+
+if [ -z "$EMAIL_ACTION_ID" ]; then
+  CREATE=$(zitadel_api "${ZITADEL_SVC}/management/v1/actions" \
+    -d "$(jq -nc --arg name "$EMAIL_ACTION_NAME" --arg script "$EMAIL_ACTION_SCRIPT" '{
+      name: $name, script: $script, timeout: "10s", allowedToFail: true
+    }')")
+  EMAIL_ACTION_ID=$(echo "$CREATE" | jq -r '.id // empty')
+  [ -z "$EMAIL_ACTION_ID" ] && warn "Could not create email claim action: ${CREATE}" || ok "Email claim action created: ${EMAIL_ACTION_ID}"
+else
+  ok "Email claim action already exists: ${EMAIL_ACTION_ID}"
+fi
+
+if [ -n "$EMAIL_ACTION_ID" ]; then
+  TRIGGER_RESP=$(zitadel_api \
+    "${ZITADEL_SVC}/management/v1/org/flows/FLOW_TYPE_COMPLEMENT_TOKEN/trigger/TRIGGER_TYPE_PRE_ACCESS_TOKEN_CREATION" \
+    -X PUT \
+    -d "$(jq -nc --arg id "$EMAIL_ACTION_ID" '{"actionIds":[$id]}')")
+  ok "Email claim trigger linked"
 fi
 
 # --- Step 8: Patch flui-secrets ----------------------------------------------
