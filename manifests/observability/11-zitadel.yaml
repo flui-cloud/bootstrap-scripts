@@ -120,7 +120,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: zitadel
-          image: ghcr.io/zitadel/zitadel:latest
+          image: ghcr.io/zitadel/zitadel:v4.15.0
           # start-from-init: runs init + setup + start in a single command
           args:
             - start-from-init
