@@ -287,6 +287,77 @@ else
 fi
 
 # ============================================================
+# STEP 2.5: Prepare Flui shared storage Volume (pre-k3s)
+# ============================================================
+# When FLUI_SHARED_STORAGE_ENABLED=true, the master has an attached block
+# storage Volume that will host the NFS export. Format + mount happens here
+# (before k3s starts) so the path /var/lib/flui/storage exists when
+# local-path-provisioner is later reconfigured to point at it.
+# See APPLICATION_SCALING_AND_RESOURCE_MANAGEMENT.md §14.
+
+if [ "${FLUI_SHARED_STORAGE_ENABLED:-false}" = "true" ]; then
+    log "=========================================="
+    log "Flui shared storage: preparing master Volume"
+    log "=========================================="
+
+    SHARED_STORAGE_PATH="/var/lib/flui/storage"
+    SHARED_STORAGE_FS_LABEL="flui-data"
+    SHARED_STORAGE_DEVICE="${FLUI_SHARED_STORAGE_DEVICE:-}"
+
+    if [ -z "$SHARED_STORAGE_DEVICE" ]; then
+        log "⚠️  FLUI_SHARED_STORAGE_DEVICE not set, attempting auto-detection"
+        # Auto-detect: pick the first non-root unformatted block device. On
+        # Hetzner this is typically /dev/sdb; on Scaleway /dev/vdb or /dev/sdb.
+        for candidate in /dev/sdb /dev/vdb /dev/sdc /dev/vdc; do
+            if [ -b "$candidate" ] && ! lsblk -no MOUNTPOINT "$candidate" 2>/dev/null | grep -q "^/$"; then
+                SHARED_STORAGE_DEVICE="$candidate"
+                log "Auto-detected device: $SHARED_STORAGE_DEVICE"
+                break
+            fi
+        done
+    fi
+
+    if [ -z "$SHARED_STORAGE_DEVICE" ] || [ ! -b "$SHARED_STORAGE_DEVICE" ]; then
+        log "❌ No suitable block device found for Flui shared storage"
+        log "   FLUI_SHARED_STORAGE_DEVICE='$FLUI_SHARED_STORAGE_DEVICE'"
+        log "   Available block devices:"
+        lsblk | tee -a "$LOG_FILE" || true
+        error "Flui shared storage requested but no Volume attached"
+    fi
+
+    log "Using device: $SHARED_STORAGE_DEVICE"
+
+    # Format only if not already formatted (idempotent on reboot/recreate)
+    if ! blkid "$SHARED_STORAGE_DEVICE" >/dev/null 2>&1; then
+        log "Formatting $SHARED_STORAGE_DEVICE as ext4 (label=$SHARED_STORAGE_FS_LABEL)"
+        mkfs.ext4 -F -L "$SHARED_STORAGE_FS_LABEL" "$SHARED_STORAGE_DEVICE" \
+            2>&1 | tee -a "$LOG_FILE" || error "mkfs.ext4 failed"
+    else
+        EXISTING_FS=$(blkid -o value -s TYPE "$SHARED_STORAGE_DEVICE")
+        log "Device already formatted as $EXISTING_FS — skipping mkfs"
+    fi
+
+    mkdir -p "$SHARED_STORAGE_PATH"
+
+    # Mount permanently via fstab (use UUID for stability across device renames)
+    UUID=$(blkid -o value -s UUID "$SHARED_STORAGE_DEVICE")
+    if ! grep -q "$UUID" /etc/fstab; then
+        echo "UUID=$UUID $SHARED_STORAGE_PATH ext4 defaults,nofail 0 2" >> /etc/fstab
+        log "Added fstab entry: UUID=$UUID -> $SHARED_STORAGE_PATH"
+    fi
+
+    if ! mountpoint -q "$SHARED_STORAGE_PATH"; then
+        mount "$SHARED_STORAGE_PATH" 2>&1 | tee -a "$LOG_FILE" \
+            || error "Failed to mount $SHARED_STORAGE_DEVICE on $SHARED_STORAGE_PATH"
+    fi
+
+    log "✅ Flui shared storage mounted at $SHARED_STORAGE_PATH"
+    df -h "$SHARED_STORAGE_PATH" | tee -a "$LOG_FILE"
+else
+    log "Flui shared storage: disabled (FLUI_SHARED_STORAGE_ENABLED=false)"
+fi
+
+# ============================================================
 # STEP 3: Install K3s Master
 # ============================================================
 
@@ -430,6 +501,87 @@ until kubectl get nodes | grep "$INSTANCE_NAME" | grep -q Ready; do
 done
 
 log "✅ K3s master node is Ready! (took ${ELAPSED}s)"
+
+# ============================================================
+# STEP 6.5: Configure NFS server + local-path-provisioner repoint
+# ============================================================
+# When Flui shared storage is enabled, install nfs-kernel-server, export the
+# Volume mountpoint over NFSv4, and patch the local-path-provisioner ConfigMap
+# so all PVCs land on the shared NFS share (visible from any worker that mounts
+# it). See APPLICATION_SCALING_AND_RESOURCE_MANAGEMENT.md §14.
+
+if [ "${FLUI_SHARED_STORAGE_ENABLED:-false}" = "true" ]; then
+    log "=========================================="
+    log "Configuring NFS server + local-path-provisioner"
+    log "=========================================="
+
+    SHARED_STORAGE_PATH="/var/lib/flui/storage"
+    NFS_EXPORT_OPTS="rw,async,no_subtree_check,no_root_squash"
+
+    log "Installing nfs-kernel-server..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -yq nfs-kernel-server \
+        2>&1 | tail -5 | tee -a "$LOG_FILE" \
+        || error "Failed to install nfs-kernel-server"
+
+    # Export only to private network (or local subnets) for security.
+    # Default: trust all, can be tightened by Flui via env var.
+    NFS_ALLOWED_NETWORKS="${FLUI_NFS_ALLOWED_NETWORKS:-*}"
+
+    # Idempotent: replace existing flui export line if present
+    sed -i '\|^/var/lib/flui/storage |d' /etc/exports
+    echo "/var/lib/flui/storage ${NFS_ALLOWED_NETWORKS}(${NFS_EXPORT_OPTS})" >> /etc/exports
+    log "NFS export: /var/lib/flui/storage ${NFS_ALLOWED_NETWORKS}(${NFS_EXPORT_OPTS})"
+
+    systemctl enable --now nfs-server 2>&1 | tee -a "$LOG_FILE" || true
+    exportfs -rav 2>&1 | tee -a "$LOG_FILE" \
+        || error "exportfs failed"
+
+    # Verify NFS server is listening
+    if ! systemctl is-active --quiet nfs-server; then
+        log "❌ nfs-server is not active"
+        systemctl status nfs-server --no-pager | tee -a "$LOG_FILE"
+        error "NFS server failed to start"
+    fi
+    log "✅ NFS server active and exporting $SHARED_STORAGE_PATH"
+
+    # Patch local-path-provisioner ConfigMap to point at the shared mount.
+    # The default config uses /var/lib/rancher/k3s/storage on each node; we
+    # repoint to /var/lib/flui/storage so all PVCs land on the NFS share.
+    log "Patching local-path-provisioner ConfigMap..."
+    LOCAL_PATH_NS="kube-system"
+    cat <<'PATCH_YAML' > /tmp/local-path-config-patch.json
+{
+  "data": {
+    "config.json": "{\n  \"nodePathMap\": [\n    {\n      \"node\": \"DEFAULT_PATH_FOR_NON_LISTED_NODES\",\n      \"paths\": [\"/var/lib/flui/storage\"]\n    }\n  ]\n}"
+  }
+}
+PATCH_YAML
+
+    # Wait for local-path-provisioner to exist (k3s deploys it asynchronously)
+    PATCH_ELAPSED=0
+    until kubectl -n "$LOCAL_PATH_NS" get configmap local-path-config >/dev/null 2>&1; do
+        if [ $PATCH_ELAPSED -ge 60 ]; then
+            log "⚠️  local-path-config ConfigMap not found within 60s — skipping patch"
+            log "   (k3s may install it later, manual patch required)"
+            break
+        fi
+        sleep 3
+        PATCH_ELAPSED=$((PATCH_ELAPSED + 3))
+    done
+
+    if kubectl -n "$LOCAL_PATH_NS" get configmap local-path-config >/dev/null 2>&1; then
+        kubectl -n "$LOCAL_PATH_NS" patch configmap local-path-config \
+            --type merge \
+            --patch-file /tmp/local-path-config-patch.json \
+            2>&1 | tee -a "$LOG_FILE" \
+            || log "⚠️  ConfigMap patch failed (non-fatal, manual patch may be needed)"
+
+        # Restart provisioner pod to pick up new path
+        kubectl -n "$LOCAL_PATH_NS" rollout restart deployment local-path-provisioner \
+            >/dev/null 2>&1 || true
+        log "✅ local-path-provisioner repointed to $SHARED_STORAGE_PATH"
+    fi
+fi
 
 # ============================================================
 # STEP 7: Display cluster information

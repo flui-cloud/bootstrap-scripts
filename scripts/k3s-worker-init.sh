@@ -211,6 +211,76 @@ else
 fi
 
 # ============================================================
+# STEP 2.5: Configure Flui shared storage (NFS client + fscache)
+# ============================================================
+# When FLUI_SHARED_STORAGE_ENABLED=true, install nfs-common + cachefilesd,
+# create the local cache, and mount the master's NFS export at the conventional
+# path. local-path-provisioner on the master is already pointing at this path,
+# so PVCs created by apps land on the shared NFS share visible from this worker.
+# See APPLICATION_SCALING_AND_RESOURCE_MANAGEMENT.md §14.
+
+if [ "${FLUI_SHARED_STORAGE_ENABLED:-false}" = "true" ]; then
+    log "=========================================="
+    log "Flui shared storage: configuring worker"
+    log "=========================================="
+
+    SHARED_STORAGE_PATH="/var/lib/flui/storage"
+    FSCACHE_PATH="/var/cache/fscache"
+    NFS_MASTER_IP="${FLUI_SHARED_STORAGE_MASTER_IP:-${MASTER_IP}}"
+    NFS_OPTS="vers=4.2,bg,fsc,async,hard,_netdev"
+
+    if [ -z "$NFS_MASTER_IP" ]; then
+        log "❌ FLUI_SHARED_STORAGE_MASTER_IP and MASTER_IP both empty — cannot mount NFS"
+        error "Missing master IP for NFS mount"
+    fi
+
+    log "Installing nfs-common + cachefilesd..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -yq \
+        nfs-common cachefilesd 2>&1 | tail -5 | tee -a "$LOG_FILE" \
+        || error "Failed to install nfs-common / cachefilesd"
+
+    # Configure cachefilesd
+    mkdir -p "$FSCACHE_PATH"
+    sed -i 's|^#\?RUN=.*|RUN=yes|' /etc/default/cachefilesd 2>/dev/null || true
+    if ! grep -q "^dir $FSCACHE_PATH" /etc/cachefilesd.conf 2>/dev/null; then
+        sed -i 's|^dir .*|dir '"$FSCACHE_PATH"'|' /etc/cachefilesd.conf 2>/dev/null \
+            || echo "dir $FSCACHE_PATH" >> /etc/cachefilesd.conf
+    fi
+    systemctl enable --now cachefilesd 2>&1 | tee -a "$LOG_FILE" \
+        || log "⚠️  cachefilesd failed to start (non-fatal — NFS will still work without cache)"
+
+    mkdir -p "$SHARED_STORAGE_PATH"
+
+    # Add fstab entry (idempotent)
+    sed -i "\|${SHARED_STORAGE_PATH}|d" /etc/fstab
+    echo "${NFS_MASTER_IP}:${SHARED_STORAGE_PATH} ${SHARED_STORAGE_PATH} nfs4 ${NFS_OPTS} 0 0" >> /etc/fstab
+    log "Added fstab entry: ${NFS_MASTER_IP}:${SHARED_STORAGE_PATH}"
+
+    # Wait for master NFS to be reachable then mount
+    log "Waiting for master NFS at ${NFS_MASTER_IP}:2049 to be reachable..."
+    MAX_NFS_WAIT=180
+    NFS_ELAPSED=0
+    until timeout 3 bash -c ">/dev/tcp/${NFS_MASTER_IP}/2049" 2>/dev/null; do
+        if [ $NFS_ELAPSED -ge $MAX_NFS_WAIT ]; then
+            log "⚠️  Master NFS not reachable after ${MAX_NFS_WAIT}s — continuing anyway, mount will be retried by fstab on boot"
+            break
+        fi
+        sleep 5
+        NFS_ELAPSED=$((NFS_ELAPSED + 5))
+    done
+
+    if mount "$SHARED_STORAGE_PATH" 2>&1 | tee -a "$LOG_FILE"; then
+        log "✅ NFS mount succeeded at $SHARED_STORAGE_PATH"
+        df -h "$SHARED_STORAGE_PATH" | tee -a "$LOG_FILE" || true
+    else
+        log "⚠️  NFS mount failed — will retry on boot via fstab. K3s agent will start anyway"
+        log "   Manual debug: mount -t nfs4 -o $NFS_OPTS ${NFS_MASTER_IP}:${SHARED_STORAGE_PATH} ${SHARED_STORAGE_PATH}"
+    fi
+else
+    log "Flui shared storage: disabled (FLUI_SHARED_STORAGE_ENABLED=false)"
+fi
+
+# ============================================================
 # STEP 3: Install K3s Worker
 # ============================================================
 
