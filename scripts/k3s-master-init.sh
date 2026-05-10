@@ -307,8 +307,9 @@ if [ "${FLUI_SHARED_STORAGE_ENABLED:-false}" = "true" ]; then
     if [ -z "$SHARED_STORAGE_DEVICE" ]; then
         log "⚠️  FLUI_SHARED_STORAGE_DEVICE not set, attempting auto-detection"
         # Auto-detect: pick the first non-root unformatted block device. On
-        # Hetzner this is typically /dev/sdb; on Scaleway /dev/vdb or /dev/sdb.
-        for candidate in /dev/sdb /dev/vdb /dev/sdc /dev/vdc; do
+        # Hetzner this is typically /dev/sdb; on Scaleway with virtio root the
+        # SBS volume is /dev/sda (root sits on /dev/vda).
+        for candidate in /dev/sdb /dev/vdb /dev/sda /dev/sdc /dev/vdc; do
             if [ -b "$candidate" ] && ! lsblk -no MOUNTPOINT "$candidate" 2>/dev/null | grep -q "^/$"; then
                 SHARED_STORAGE_DEVICE="$candidate"
                 log "Auto-detected device: $SHARED_STORAGE_DEVICE"
