@@ -304,26 +304,38 @@ if [ "${FLUI_SHARED_STORAGE_ENABLED:-false}" = "true" ]; then
     SHARED_STORAGE_FS_LABEL="flui-data"
     SHARED_STORAGE_DEVICE="${FLUI_SHARED_STORAGE_DEVICE:-}"
 
-    if [ -z "$SHARED_STORAGE_DEVICE" ]; then
-        log "⚠️  FLUI_SHARED_STORAGE_DEVICE not set, attempting auto-detection"
-        # Auto-detect: pick the first non-root unformatted block device. On
-        # Hetzner this is typically /dev/sdb; on Scaleway with virtio root the
-        # SBS volume is /dev/sda (root sits on /dev/vda).
-        for candidate in /dev/sdb /dev/vdb /dev/sda /dev/sdc /dev/vdc; do
-            if [ -b "$candidate" ] && ! lsblk -no MOUNTPOINT "$candidate" 2>/dev/null | grep -q "^/$"; then
-                SHARED_STORAGE_DEVICE="$candidate"
-                log "Auto-detected device: $SHARED_STORAGE_DEVICE"
-                break
-            fi
+    wait_for_device() {
+        local timeout=120
+        local elapsed=0
+        while [ $elapsed -lt $timeout ]; do
+            for stable in /dev/disk/by-id/scsi-0HC_Volume_* /dev/disk/by-id/scsi-0SCW_*; do
+                if [ -b "$stable" ]; then
+                    SHARED_STORAGE_DEVICE="$(readlink -f "$stable")"
+                    log "Found by-id device: $stable → $SHARED_STORAGE_DEVICE"
+                    return 0
+                fi
+            done
+            for candidate in /dev/sdb /dev/vdb /dev/sdc /dev/vdc; do
+                if [ -b "$candidate" ] && ! lsblk -no MOUNTPOINT "$candidate" 2>/dev/null | grep -q "^/$"; then
+                    SHARED_STORAGE_DEVICE="$candidate"
+                    log "Found candidate device: $SHARED_STORAGE_DEVICE"
+                    return 0
+                fi
+            done
+            sleep 3
+            elapsed=$((elapsed + 3))
+            log "Waiting for shared-storage device... (${elapsed}s/${timeout}s)"
         done
-    fi
+        return 1
+    }
 
     if [ -z "$SHARED_STORAGE_DEVICE" ] || [ ! -b "$SHARED_STORAGE_DEVICE" ]; then
-        log "❌ No suitable block device found for Flui shared storage"
-        log "   FLUI_SHARED_STORAGE_DEVICE='$FLUI_SHARED_STORAGE_DEVICE'"
-        log "   Available block devices:"
-        lsblk | tee -a "$LOG_FILE" || true
-        error "Flui shared storage requested but no Volume attached"
+        log "Polling for shared-storage device (up to 120s)..."
+        if ! wait_for_device; then
+            log "❌ No suitable block device found after 120s"
+            lsblk | tee -a "$LOG_FILE" || true
+            error "Flui shared storage requested but no Volume attached"
+        fi
     fi
 
     log "Using device: $SHARED_STORAGE_DEVICE"
