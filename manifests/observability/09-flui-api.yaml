@@ -81,7 +81,7 @@ spec:
           command: ['sh', '-c', 'until nc -z redis 6379; do echo "Waiting for redis..."; sleep 2; done']
       containers:
         - name: flui-api
-          image: ghcr.io/flui-cloud/api:latest
+          image: ghcr.io/flui-cloud/core:latest
           ports:
             - containerPort: 3000
               name: http
