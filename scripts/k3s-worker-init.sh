@@ -33,21 +33,21 @@ error() {
     exit 1
 }
 
-# Test connectivity to observability cluster (for workload clusters)
-test_observability_connectivity() {
+# Test connectivity to control cluster (for workload clusters)
+test_control_cluster_connectivity() {
     local OBS_CLUSTER_IP="$1"
 
     if [ -z "$OBS_CLUSTER_IP" ]; then
-        return 0  # No observability cluster configured, skip test
+        return 0  # No control cluster configured, skip test
     fi
 
-    log "Testing connectivity to observability cluster at $OBS_CLUSTER_IP..."
+    log "Testing connectivity to control cluster at $OBS_CLUSTER_IP..."
 
     # Test 1: Ping (may fail if ICMP blocked)
     if ping -c 2 -W 3 "$OBS_CLUSTER_IP" &>/dev/null; then
-        log "  ✓ Observability cluster host is reachable (ping)"
+        log "  ✓ Control cluster host is reachable (ping)"
     else
-        warn "  ⚠ Observability cluster not responding to ping (may be blocked)"
+        warn "  ⚠ Control cluster not responding to ping (may be blocked)"
     fi
 
     # Test 2: TCP connection to Loki NodePort via VNet (30100 not in public firewall)
@@ -64,11 +64,11 @@ test_observability_connectivity() {
         local END_TIME=$(date +%s%N 2>/dev/null || echo "$START_TIME")
         if [ "$START_TIME" != "0" ] && [ "$END_TIME" != "$START_TIME" ]; then
             local LATENCY_MS=$(( (END_TIME - START_TIME) / 1000000 ))
-            log "  ℹ Network latency to observability cluster: ${LATENCY_MS}ms"
+            log "  ℹ Network latency to control cluster: ${LATENCY_MS}ms"
         fi
     fi
 
-    log "Connectivity test to observability cluster completed"
+    log "Connectivity test to control cluster completed"
 }
 
 log "=== K3s Worker Node Initialization ==="
@@ -78,7 +78,7 @@ log "Provider: $CLOUD_PROVIDER"
 log "Master: $MASTER_IP"
 log "K3s Version: $K3S_VERSION"
 if [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
-    log "Observability Cluster IP: $OBSERVABILITY_CLUSTER_IP (logs will be forwarded)"
+    log "Control Cluster IP: $OBSERVABILITY_CLUSTER_IP (logs will be forwarded)"
 fi
 
 # ============================================================
@@ -128,26 +128,26 @@ else
     warn "Failed to download diagnose-monitoring.sh - diagnostic tools may be limited"
 fi
 
-if curl -fsSL "$SCRIPTS_BASE_URL/check-observability-cluster.sh" -o /usr/local/bin/check-observability-cluster.sh; then
-    chmod +x /usr/local/bin/check-observability-cluster.sh
-    log "✓ Installed check-observability-cluster.sh to /usr/local/bin/"
+if curl -fsSL "$SCRIPTS_BASE_URL/check-control-cluster.sh" -o /usr/local/bin/check-control-cluster.sh; then
+    chmod +x /usr/local/bin/check-control-cluster.sh
+    log "✓ Installed check-control-cluster.sh to /usr/local/bin/"
 else
-    warn "Failed to download check-observability-cluster.sh - diagnostic tools may be limited"
+    warn "Failed to download check-control-cluster.sh - diagnostic tools may be limited"
 fi
 
-# Test connectivity to observability cluster BEFORE configuring monitoring
+# Test connectivity to control cluster BEFORE configuring monitoring
 if [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
-    test_observability_connectivity "$OBSERVABILITY_CLUSTER_IP"
+    test_control_cluster_connectivity "$OBSERVABILITY_CLUSTER_IP"
 fi
 
 # Export monitoring endpoints for log forwarding
-# For workload clusters, send logs to remote observability cluster
+# For workload clusters, send logs to remote control cluster
 if [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
     export LOKI_ENDPOINT="${OBSERVABILITY_CLUSTER_IP}:30100"
     log "Loki endpoint (VNet): ${LOKI_ENDPOINT}"
 else
     export LOKI_ENDPOINT="localhost:3100"
-    warn "No observability cluster configured - logs will be sent to localhost (no Loki available)"
+    warn "No control cluster configured - logs will be sent to localhost (no Loki available)"
 fi
 
 export PROMETHEUS_ENDPOINT="localhost:9090"
@@ -174,14 +174,14 @@ rm -f /tmp/flui-init.sh
 
 log "Flui.cloud base initialization completed successfully"
 
-# Verify Vector is configured correctly for remote Loki (if observability cluster is configured)
+# Verify Vector is configured correctly for remote Loki (if control cluster is configured)
 if [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
     log "Verifying Vector configuration for remote Loki..."
     if [ -f /etc/vector/vector.toml ]; then
         if grep -q "$OBSERVABILITY_CLUSTER_IP" /etc/vector/vector.toml; then
-            log "✅ Vector configured to send logs to observability cluster at $OBSERVABILITY_CLUSTER_IP"
+            log "✅ Vector configured to send logs to control cluster at $OBSERVABILITY_CLUSTER_IP"
         else
-            warn "Vector configuration may not have been updated with observability cluster IP"
+            warn "Vector configuration may not have been updated with control cluster IP"
         fi
     else
         warn "Vector configuration file not found at /etc/vector/vector.toml"

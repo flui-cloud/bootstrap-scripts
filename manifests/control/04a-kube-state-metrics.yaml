@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kube-state-metrics
-  namespace: flui-observability
+  namespace: flui-control
   labels:
     app: kube-state-metrics
     app.kubernetes.io/name: kube-state-metrics
@@ -108,13 +108,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: kube-state-metrics
-    namespace: flui-observability
+    namespace: flui-control
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: kube-state-metrics
-  namespace: flui-observability
+  namespace: flui-control
   labels:
     app: kube-state-metrics
     app.kubernetes.io/name: kube-state-metrics
@@ -141,7 +141,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kube-state-metrics
-  namespace: flui-observability
+  namespace: flui-control
   labels:
     app: kube-state-metrics
     app.kubernetes.io/name: kube-state-metrics

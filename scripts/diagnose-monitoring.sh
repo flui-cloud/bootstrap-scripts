@@ -265,21 +265,21 @@ else
 fi
 
 #================================================#
-# 4. CHECK OBSERVABILITY CLUSTER CONNECTIVITY
+# 4. CHECK CONTROL CLUSTER CONNECTIVITY
 #================================================#
 if [ -n "$LOKI_ENDPOINT" ] && [[ "$LOKI_ENDPOINT" != *"localhost"* ]] && [[ "$LOKI_ENDPOINT" != *"127.0.0.1"* ]]; then
-    log_section "Observability Cluster Connectivity"
+    log_section "Control Cluster Connectivity"
 
     OBS_HOST=$(echo "$LOKI_ENDPOINT" | cut -d':' -f1)
     OBS_PORT=$(echo "$LOKI_ENDPOINT" | cut -d':' -f2)
 
-    log_info "Testing connection to observability cluster: $OBS_HOST:$OBS_PORT"
+    log_info "Testing connection to control cluster: $OBS_HOST:$OBS_PORT"
 
     # Ping test
     if ping -c 2 -W 3 "$OBS_HOST" >/dev/null 2>&1; then
-        log_info "Observability cluster host is reachable (ping)"
+        log_info "Control cluster host is reachable (ping)"
     else
-        log_warn "Observability cluster not responding to ping (may be blocked)"
+        log_warn "Control cluster not responding to ping (may be blocked)"
     fi
 
     # TCP connection test
@@ -299,9 +299,9 @@ if [ -n "$LOKI_ENDPOINT" ] && [[ "$LOKI_ENDPOINT" != *"localhost"* ]] && [[ "$LO
     else
         OBS_CLUSTER_REACHABLE=false
         log_error "Loki port $OBS_PORT is NOT reachable"
-        log_error "Check firewall rules on observability cluster"
+        log_error "Check firewall rules on control cluster"
         OVERALL_STATUS="degraded"
-        ISSUES+=("observability_cluster_unreachable")
+        ISSUES+=("control_cluster_unreachable")
     fi
 
     # Test Loki health endpoint
@@ -376,7 +376,7 @@ if [ "$JSON_OUTPUT" = true ]; then
     "api_reachable": $VECTOR_API_REACHABLE,
     "loki_endpoint": "$LOKI_ENDPOINT"
   },
-  "observability_cluster": {
+  "control_cluster": {
     "configured": $([ -n "$LOKI_ENDPOINT" ] && echo "true" || echo "false"),
     "reachable": $OBS_CLUSTER_REACHABLE
   },

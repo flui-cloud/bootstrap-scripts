@@ -2,7 +2,7 @@
 # =============================================================================
 # setup-zitadel-oidc.sh
 #
-# Configures Zitadel OIDC for Flui platform on a fresh observability cluster.
+# Configures Zitadel OIDC for Flui platform on a fresh control cluster.
 # Mirrors the API-side OidcBootstrapService so it can run BEFORE flui-api boots,
 # eliminating the rollout-restart cycle and saving ~60s on first install.
 #

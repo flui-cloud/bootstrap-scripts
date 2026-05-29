@@ -690,7 +690,7 @@ EOF
 
         # Set cluster_type based on server_type
         if [[ "$SERVER_TYPE" == "k3s-master" ]] && [[ "$LOKI_ENDPOINT" == *"localhost"* || "$LOKI_ENDPOINT" == *"127.0.0.1"* ]]; then
-            sed -i "s|CLUSTER_TYPE_PLACEHOLDER|observability|g" /etc/vector/vector.toml
+            sed -i "s|CLUSTER_TYPE_PLACEHOLDER|control|g" /etc/vector/vector.toml
         else
             sed -i "s|CLUSTER_TYPE_PLACEHOLDER|workload|g" /etc/vector/vector.toml
         fi

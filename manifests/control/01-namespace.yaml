@@ -10,9 +10,9 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: flui-observability
+  name: flui-control
   labels:
-    name: flui-observability
+    name: flui-control
     managed-by: "flui-cloud"
     flui.cloud/tier: "observability"
 ---

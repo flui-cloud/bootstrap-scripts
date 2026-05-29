@@ -78,21 +78,21 @@ update_health() {
 EOF
 }
 
-# Test connectivity to observability cluster (for workload clusters)
-test_observability_connectivity() {
+# Test connectivity to control cluster (for workload clusters)
+test_control_cluster_connectivity() {
     local OBS_CLUSTER_IP="$1"
 
     if [ -z "$OBS_CLUSTER_IP" ]; then
-        return 0  # No observability cluster configured, skip test
+        return 0  # No control cluster configured, skip test
     fi
 
-    log "Testing connectivity to observability cluster at $OBS_CLUSTER_IP..."
+    log "Testing connectivity to control cluster at $OBS_CLUSTER_IP..."
 
     # Test 1: Ping (may fail if ICMP blocked)
     if ping -c 2 -W 3 "$OBS_CLUSTER_IP" &>/dev/null; then
-        log "  ✓ Observability cluster host is reachable (ping)"
+        log "  ✓ Control cluster host is reachable (ping)"
     else
-        warn "  ⚠ Observability cluster not responding to ping (may be blocked)"
+        warn "  ⚠ Control cluster not responding to ping (may be blocked)"
     fi
 
     # Test 2: TCP connection to Loki NodePort via VNet (30100 not in public firewall)
@@ -109,11 +109,11 @@ test_observability_connectivity() {
         local END_TIME=$(date +%s%N 2>/dev/null || echo "$START_TIME")
         if [ "$START_TIME" != "0" ] && [ "$END_TIME" != "$START_TIME" ]; then
             local LATENCY_MS=$(( (END_TIME - START_TIME) / 1000000 ))
-            log "  ℹ Network latency to observability cluster: ${LATENCY_MS}ms"
+            log "  ℹ Network latency to control cluster: ${LATENCY_MS}ms"
         fi
     fi
 
-    log "Connectivity test to observability cluster completed"
+    log "Connectivity test to control cluster completed"
 }
 
 log "=== K3s Master Node Initialization ==="
@@ -123,7 +123,7 @@ log "Provider: $CLOUD_PROVIDER"
 log "K3s Version: $K3S_VERSION"
 log "Deploy Observability Stack: $DEPLOY_OBSERVABILITY_STACK"
 if [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
-    log "Observability Cluster IP: $OBSERVABILITY_CLUSTER_IP (logs will be forwarded)"
+    log "Control Cluster IP: $OBSERVABILITY_CLUSTER_IP (logs will be forwarded)"
 fi
 
 update_health "initializing" "k3s" ""
@@ -170,15 +170,15 @@ else
     warn "Failed to download diagnose-monitoring.sh - diagnostic tools may be limited"
 fi
 
-if curl -fsSL "$SCRIPTS_BASE_URL/check-observability-cluster.sh" -o /usr/local/bin/check-observability-cluster.sh; then
-    chmod +x /usr/local/bin/check-observability-cluster.sh
-    log "✓ Installed check-observability-cluster.sh to /usr/local/bin/"
+if curl -fsSL "$SCRIPTS_BASE_URL/check-control-cluster.sh" -o /usr/local/bin/check-control-cluster.sh; then
+    chmod +x /usr/local/bin/check-control-cluster.sh
+    log "✓ Installed check-control-cluster.sh to /usr/local/bin/"
 else
-    warn "Failed to download check-observability-cluster.sh - diagnostic tools may be limited"
+    warn "Failed to download check-control-cluster.sh - diagnostic tools may be limited"
 fi
 
 if [ "$DEPLOY_OBSERVABILITY_STACK" = "false" ] && [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
-    test_observability_connectivity "$OBSERVABILITY_CLUSTER_IP"
+    test_control_cluster_connectivity "$OBSERVABILITY_CLUSTER_IP"
 fi
 
 if [ "$DEPLOY_OBSERVABILITY_STACK" = "false" ] && [ -n "$OBSERVABILITY_CLUSTER_IP" ]; then
@@ -191,7 +191,7 @@ else
     export LOKI_ENDPOINT="localhost:30100"
 fi
 
-export PROMETHEUS_ENDPOINT="vmsingle.flui-observability.svc.cluster.local:8428"
+export PROMETHEUS_ENDPOINT="vmsingle.flui-control.svc.cluster.local:8428"
 export FLUI_API_ENDPOINT="${FLUI_API_ENDPOINT:-http://localhost:3000}"
 if [[ -z "$SERVER_ID" ]]; then
     error "SERVER_ID not provided - this should be the database node ID from infrastructure_cluster_nodes table"
@@ -878,13 +878,13 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     mkdir -p "$MANIFEST_DIR"
 
     log "Manifest directory: $MANIFEST_DIR"
-    log "Downloading manifests from: $MANIFESTS_BASE_URL/observability/"
+    log "Downloading manifests from: $MANIFESTS_BASE_URL/control/"
     log "Deploying components: namespace, postgres, redis, vmsingle, vmagent, loki, grafana"
 
     # Metrics stack: vmsingle (TSDB + receiver) + vmagent (scraper, push to vmsingle).
     # Replaces Prometheus on new clusters per ADR-001-metrics-transport.
-    export CLUSTER_TYPE="observability"
-    export REMOTE_WRITE_URL="http://vmsingle.flui-observability.svc.cluster.local:8428/api/v1/write"
+    export CLUSTER_TYPE="control"
+    export REMOTE_WRITE_URL="http://vmsingle.flui-control.svc.cluster.local:8428/api/v1/write"
 
     MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 00a-traefik-config"
     if [ "$AUTH_MODE" = "oidc" ]; then
@@ -896,8 +896,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
 
     for manifest in $MANIFESTS; do
         log "→ Downloading ${manifest}.yaml..."
-        if ! curl -fsSL "$MANIFESTS_BASE_URL/observability/${manifest}.yaml" -o "/tmp/${manifest}.yaml"; then
-            error "Failed to download ${manifest}.yaml from $MANIFESTS_BASE_URL/observability/"
+        if ! curl -fsSL "$MANIFESTS_BASE_URL/control/${manifest}.yaml" -o "/tmp/${manifest}.yaml"; then
+            error "Failed to download ${manifest}.yaml from $MANIFESTS_BASE_URL/control/"
         fi
 
         if command -v envsubst &> /dev/null; then
@@ -960,7 +960,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     # Runs in background so it doesn't block k3s init flow.
     if [ "${FLUI_NIP_IO_CERT_ENABLED:-}" = "true" ]; then
         log "→ Scheduling async system TLS certificate bootstrap..."
-        if ! curl -fsSL "$MANIFESTS_BASE_URL/observability/13-system-tls-cert.yaml" -o /tmp/13-system-tls-cert.yaml; then
+        if ! curl -fsSL "$MANIFESTS_BASE_URL/control/13-system-tls-cert.yaml" -o /tmp/13-system-tls-cert.yaml; then
             warn "Failed to download 13-system-tls-cert.yaml — TLS bootstrap skipped"
         else
             if [ "${FLUI_ACME_STAGING:-}" = "true" ]; then
@@ -1084,17 +1084,17 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "→ Waiting for vmsingle, vmagent, kube-state-metrics, Loki, Grafana (parallel)..."
     update_health "deploying" "observability-components" ""
 
-    kubectl wait --for=condition=ready pod -l app=vmsingle -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
+    kubectl wait --for=condition=ready pod -l app=vmsingle -n flui-control --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
     PID_VMSINGLE=$!
-    kubectl wait --for=condition=ready pod -l app=vmagent -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
+    kubectl wait --for=condition=ready pod -l app=vmagent -n flui-control --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
     PID_VMAGENT=$!
-    kubectl wait --for=condition=ready pod -l app=vmalert -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
+    kubectl wait --for=condition=ready pod -l app=vmalert -n flui-control --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
     PID_VMALERT=$!
-    kubectl wait --for=condition=ready pod -l app=kube-state-metrics -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
+    kubectl wait --for=condition=ready pod -l app=kube-state-metrics -n flui-control --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
     PID_KSM=$!
-    kubectl wait --for=condition=ready pod -l app=loki -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
+    kubectl wait --for=condition=ready pod -l app=loki -n flui-control --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
     PID_LOKI=$!
-    kubectl wait --for=condition=ready pod -l app=grafana -n flui-observability --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
+    kubectl wait --for=condition=ready pod -l app=grafana -n flui-control --timeout=${COMPONENT_TIMEOUT}s 2>/dev/null &
     PID_GRAFANA=$!
 
     if wait $PID_VMSINGLE; then log "✅ vmsingle is ready"; else

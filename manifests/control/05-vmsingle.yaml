@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: vmsingle
-  namespace: flui-observability
+  namespace: flui-control
   labels:
     app: vmsingle
     app.kubernetes.io/name: vmsingle
@@ -27,7 +27,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: vmsingle
-  namespace: flui-observability
+  namespace: flui-control
   labels:
     app: vmsingle
     app.kubernetes.io/name: vmsingle

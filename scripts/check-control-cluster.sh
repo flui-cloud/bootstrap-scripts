@@ -1,10 +1,10 @@
 #!/bin/bash
-# Check Observability Cluster Accessibility from Workload Node
+# Check Control Cluster Accessibility from Workload Node
 # This script verifies network connectivity from a workload cluster node
-# to the central observability cluster
+# to the central control cluster
 #
 # Usage:
-#   ./check-observability-cluster.sh [OBSERVABILITY_IP]
+#   ./check-control-cluster.sh [OBSERVABILITY_IP]
 #
 # If OBSERVABILITY_IP is not provided, script will try to extract it from Vector config
 
@@ -17,11 +17,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Get observability cluster IP from argument or Vector config
+# Get control cluster IP from argument or Vector config
 OBSERVABILITY_IP="${1:-}"
 
 if [ -z "$OBSERVABILITY_IP" ]; then
-    echo "No observability cluster IP provided. Checking Vector configuration..."
+    echo "No control cluster IP provided. Checking Vector configuration..."
 
     if [ -f /etc/vector/vector.toml ]; then
         # Extract IP from Loki endpoint in Vector config
@@ -29,22 +29,22 @@ if [ -z "$OBSERVABILITY_IP" ]; then
 
         if [ -n "$LOKI_ENDPOINT" ]; then
             OBSERVABILITY_IP=$(echo "$LOKI_ENDPOINT" | cut -d':' -f1)
-            echo -e "${GREEN}Found observability cluster IP from Vector config: $OBSERVABILITY_IP${NC}"
+            echo -e "${GREEN}Found control cluster IP from Vector config: $OBSERVABILITY_IP${NC}"
         else
-            echo -e "${RED}ERROR: Could not extract observability cluster IP from Vector config${NC}"
-            echo "Usage: $0 <observability-cluster-ip>"
+            echo -e "${RED}ERROR: Could not extract control cluster IP from Vector config${NC}"
+            echo "Usage: $0 <control-cluster-ip>"
             exit 1
         fi
     else
         echo -e "${RED}ERROR: Vector config not found and no IP provided${NC}"
-        echo "Usage: $0 <observability-cluster-ip>"
+        echo "Usage: $0 <control-cluster-ip>"
         exit 1
     fi
 fi
 
 echo ""
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}Observability Cluster Connectivity Test${NC}"
+echo -e "${BLUE}Control Cluster Connectivity Test${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 echo "Target: $OBSERVABILITY_IP"
@@ -104,7 +104,7 @@ if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$OBSERVABILITY_IP/30100" 2>/dev
     echo "  TCP connection latency: ${LATENCY_MS}ms"
 else
     echo -e "${RED}✗${NC} Port 30100 (Loki) is NOT reachable"
-    echo "  This means logs will NOT be forwarded to the observability cluster"
+    echo "  This means logs will NOT be forwarded to the control cluster"
     OVERALL_RESULT="fail"
     ISSUES+=("loki_port_unreachable")
 fi
@@ -118,7 +118,7 @@ if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$OBSERVABILITY_IP/30090" 2>/dev
     echo -e "${GREEN}✓${NC} Port 30090 (Prometheus) is open and reachable"
 else
     echo -e "${YELLOW}⚠${NC} Port 30090 (Prometheus) is NOT reachable"
-    echo "  This may affect metrics scraping from the observability cluster"
+    echo "  This may affect metrics scraping from the control cluster"
     ISSUES+=("prometheus_port_unreachable")
 fi
 
@@ -188,7 +188,7 @@ echo ""
 echo -e "${BLUE}Network Information:${NC}"
 echo ""
 
-# Show route to observability cluster
+# Show route to control cluster
 if command -v ip &>/dev/null; then
     echo "Route to $OBSERVABILITY_IP:"
     ip route get "$OBSERVABILITY_IP" 2>/dev/null || echo "  Unable to determine route"
@@ -209,7 +209,7 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 if [ "$OVERALL_RESULT" = "pass" ]; then
-    echo -e "${GREEN}✅ PASS${NC} - Observability cluster is fully reachable"
+    echo -e "${GREEN}✅ PASS${NC} - Control cluster is fully reachable"
     echo ""
     echo "All connectivity tests passed. Logs should be forwarding correctly."
     exit 0
@@ -222,14 +222,14 @@ else
     done
     echo ""
     echo "Troubleshooting steps:"
-    echo "  1. Check firewall rules on observability cluster"
+    echo "  1. Check firewall rules on control cluster"
     echo "     - Ensure port 30100 (Loki) is open for incoming traffic"
     echo "     - Ensure port 30090 (Prometheus) is open for incoming traffic"
     echo ""
-    echo "  2. Check if observability cluster is running:"
+    echo "  2. Check if control cluster is running:"
     echo "     ssh <observability-node> 'systemctl status k3s'"
     echo ""
-    echo "  3. Verify Loki is running on observability cluster:"
+    echo "  3. Verify Loki is running on control cluster:"
     echo "     ssh <observability-node> 'kubectl get pods -A | grep loki'"
     echo ""
     echo "  4. Check network connectivity:"

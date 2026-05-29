@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-config
-  namespace: flui-observability
+  namespace: flui-control
   labels:
     app: grafana
     app.kubernetes.io/name: grafana

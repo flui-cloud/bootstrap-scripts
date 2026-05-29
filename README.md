@@ -53,7 +53,7 @@ Installs and configures the Prometheus node exporter.
 
 ## Observability Stack
 
-Deployed via manifests in `manifests/observability/`:
+Deployed via manifests in `manifests/control/`:
 
 | Manifest | Component |
 |---|---|

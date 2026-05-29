@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: vmagent
-  namespace: flui-observability
+  namespace: flui-control
   labels:
     app: vmagent
     app.kubernetes.io/name: vmagent
@@ -53,13 +53,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: vmagent
-    namespace: flui-observability
+    namespace: flui-control
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: vmagent
-  namespace: flui-observability
+  namespace: flui-control
   labels:
     app: vmagent
     app.kubernetes.io/name: vmagent
