@@ -1,0 +1,180 @@
+# flui-local StorageClass for persistenceScope=dedicated apps. A second,
+# independent local-path-provisioner pinned to node-local /var/lib/flui/local,
+# because the default `local-path` is repointed to shared NFS when shared
+# storage is enabled (k3s-master-init.sh STEP 6.5). Image matches the version
+# k3s bundles so it is already cached on every node.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flui-local-storage
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flui-local-path-provisioner
+  namespace: flui-local-storage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: flui-local-path-provisioner
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "persistentvolumeclaims", "configmaps", "pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: flui-local-path-provisioner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: flui-local-path-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: flui-local-path-provisioner
+    namespace: flui-local-storage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: flui-local-path-provisioner
+  namespace: flui-local-storage
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: flui-local-path-provisioner
+  namespace: flui-local-storage
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: flui-local-path-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: flui-local-path-provisioner
+    namespace: flui-local-storage
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flui-local-path-provisioner
+  namespace: flui-local-storage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flui-local-path-provisioner
+  template:
+    metadata:
+      labels:
+        app: flui-local-path-provisioner
+    spec:
+      serviceAccountName: flui-local-path-provisioner
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: flui-local-path-provisioner
+          image: rancher/local-path-provisioner:v0.0.35
+          imagePullPolicy: IfNotPresent
+          command:
+            - local-path-provisioner
+            - start
+            - --provisioner-name
+            - flui.cloud/local-path
+            - --namespace
+            - flui-local-storage
+            - --service-account-name
+            - flui-local-path-provisioner
+            - --configmap-name
+            - flui-local-path-config
+            - --config
+            - /etc/config/config.json
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 64Mi
+            limits:
+              memory: 128Mi
+              ephemeral-storage: 128Mi
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config/
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CONFIG_MOUNT_PATH
+              value: /etc/config/
+      volumes:
+        - name: config-volume
+          configMap:
+            name: flui-local-path-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flui-local-path-config
+  namespace: flui-local-storage
+data:
+  config.json: |-
+    {
+      "nodePathMap": [
+        {
+          "node": "DEFAULT_PATH_FOR_NON_LISTED_NODES",
+          "paths": ["/var/lib/flui/local"]
+        }
+      ]
+    }
+  setup: |-
+    #!/bin/sh
+    set -eu
+    mkdir -m 0777 -p "$VOL_DIR"
+  teardown: |-
+    #!/bin/sh
+    set -eu
+    rm -rf "$VOL_DIR"
+  helperPod.yaml: |-
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: helper-pod
+    spec:
+      priorityClassName: system-node-critical
+      tolerations:
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: helper-pod
+          image: busybox
+          imagePullPolicy: IfNotPresent
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: flui-local
+provisioner: flui.cloud/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete

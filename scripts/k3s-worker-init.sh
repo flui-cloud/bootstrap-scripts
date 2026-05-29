@@ -210,6 +210,9 @@ else
     warn "kubectl installation failed — worker will run without kubectl. K3s agent install will continue."
 fi
 
+# Node-local path for the flui-local StorageClass (dedicated workloads pin here).
+mkdir -p /var/lib/flui/local
+
 # ============================================================
 # STEP 2.5: Configure Flui shared storage (NFS client + fscache)
 # ============================================================

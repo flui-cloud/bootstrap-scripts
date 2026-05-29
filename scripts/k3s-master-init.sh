@@ -286,6 +286,9 @@ else
     error "kubectl installation failed - command not found"
 fi
 
+# Node-local path for the flui-local StorageClass (dedicated workloads).
+mkdir -p /var/lib/flui/local
+
 # ============================================================
 # STEP 2.5: Prepare Flui shared storage Volume (pre-k3s)
 # ============================================================
@@ -886,7 +889,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     export CLUSTER_TYPE="control"
     export REMOTE_WRITE_URL="http://vmsingle.flui-control.svc.cluster.local:8428/api/v1/write"
 
-    MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 00a-traefik-config"
+    MANIFESTS="00-secrets 01-namespace 01a-flui-local-storage 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 00a-traefik-config"
     if [ "$AUTH_MODE" = "oidc" ]; then
         MANIFESTS="$MANIFESTS 11-zitadel"
         log "AUTH_MODE=oidc: Zitadel will be deployed"
@@ -1243,7 +1246,11 @@ touch /var/log/k3s-master-ready
 log "✅ Marker file created: /var/log/k3s-master-ready"
 
 log ""
-log "Bootstrap complete. Readiness signal: https://app.$FLUI_BASE_DOMAIN/"
+if [ -n "${FLUI_BASE_DOMAIN:-}" ]; then
+    log "Bootstrap complete. Readiness signal: https://app.$FLUI_BASE_DOMAIN/"
+else
+    log "Bootstrap complete."
+fi
 touch /var/log/flui-bootstrap-complete
 
 log ""
