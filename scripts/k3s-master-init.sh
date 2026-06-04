@@ -903,6 +903,15 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             error "Failed to download ${manifest}.yaml from $MANIFESTS_BASE_URL/control/"
         fi
 
+        # flui-local is fully static; its provisioner setup/teardown scripts use
+        # runtime vars ($VOL_DIR) that envsubst would blank out — apply raw.
+        if [ "$manifest" = "01a-flui-local-storage" ]; then
+            cp "/tmp/${manifest}.yaml" "$MANIFEST_DIR/${manifest}.yaml"
+            log "✅ ${manifest}.yaml deployed (raw, no envsubst)"
+            rm -f "/tmp/${manifest}.yaml"
+            continue
+        fi
+
         if command -v envsubst &> /dev/null; then
             export CLUSTER_ID SERVER_ID CLUSTER_NAME CLOUD_PROVIDER CLUSTER_TYPE
             export REMOTE_WRITE_URL
