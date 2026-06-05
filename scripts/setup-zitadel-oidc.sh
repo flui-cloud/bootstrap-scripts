@@ -307,17 +307,9 @@ cm.get('metadata', {}).pop('managedFields', None)
 json.dump(cm, sys.stdout)" | kubectl apply -f -
 ok "flui-api-config patched"
 
-# --- Step 11: Restart deployments (only if already running) ------------------
-# When this script runs in parallel with the initial flui-api boot, the
-# deployment may not yet exist. The kubectl rollout restart is a no-op in
-# that case — the first pod will read the patched secret and config on boot.
-if kubectl get deployment flui-api -n flui-system >/dev/null 2>&1; then
-  log "Restarting flui-api and flui-web..."
-  kubectl rollout restart deployment/flui-api deployment/flui-web -n flui-system
-  ok "Deployments restarted"
-else
-  ok "flui-api deployment not yet created — patched config will be picked up on first boot"
-fi
+# No restart: flui-api reconciles its OIDC env in-process and /auth/config serves
+# client ids live, so restarting here would only race that flow.
+ok "OIDC config patched — no restart needed"
 
 echo ""
 echo "=============================================="
