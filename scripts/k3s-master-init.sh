@@ -889,6 +889,13 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     export CLUSTER_TYPE="control"
     export REMOTE_WRITE_URL="http://vmsingle.flui-control.svc.cluster.local:8428/api/v1/write"
 
+    # Flui component image tags: injected by the CLI for a pinned release;
+    # default to `latest` for older CLIs and mobile (--latest) installs.
+    : "${FLUI_API_IMAGE_TAG:=latest}"
+    : "${FLUI_WEB_IMAGE_TAG:=latest}"
+    : "${FLUI_AUTHZ_IMAGE_TAG:=latest}"
+    export FLUI_API_IMAGE_TAG FLUI_WEB_IMAGE_TAG FLUI_AUTHZ_IMAGE_TAG
+
     MANIFESTS="00-secrets 01-namespace 01a-flui-local-storage 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 00a-traefik-config"
     if [ "$AUTH_MODE" = "oidc" ]; then
         MANIFESTS="$MANIFESTS 11-zitadel"
@@ -951,6 +958,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s|\${ADMIN_PASSWORD}|$ADMIN_PASSWORD|g" \
                 -e "s/\${FLUI_BASE_DOMAIN}/$FLUI_BASE_DOMAIN/g" \
                 -e "s/\${NIP_HOSTNAME_TOKEN}/$NIP_HOSTNAME_TOKEN/g" \
+                -e "s|\${FLUI_API_IMAGE_TAG}|$FLUI_API_IMAGE_TAG|g" \
+                -e "s|\${FLUI_WEB_IMAGE_TAG}|$FLUI_WEB_IMAGE_TAG|g" \
                 "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         fi
 
