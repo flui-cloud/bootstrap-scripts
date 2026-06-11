@@ -633,8 +633,9 @@ log ""
 log "Detailed pod status:"
 SYSTEM_PODS=$(kubectl get pods -n kube-system --no-headers -o custom-columns=":metadata.name")
 for POD in $SYSTEM_PODS; do
-    STATUS=$(kubectl get pod "$POD" -n kube-system -o jsonpath='{.status.phase}')
-    READY=$(kubectl get pod "$POD" -n kube-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+    # Diagnostic only — a pod may vanish between listing and querying, so never abort here.
+    STATUS=$(kubectl get pod "$POD" -n kube-system -o jsonpath='{.status.phase}' 2>/dev/null) || continue
+    READY=$(kubectl get pod "$POD" -n kube-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
 
     if [ "$STATUS" = "Running" ] && [ "$READY" = "True" ]; then
         log "  ✅ $POD: Running and Ready"
