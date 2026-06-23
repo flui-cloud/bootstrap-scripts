@@ -38,6 +38,7 @@ install_node_exporter() {
     } >> "$INSTALL_LOG"
 
     local arch="linux-amd64"
+    case "$(uname -m)" in aarch64 | arm64) arch="linux-arm64" ;; esac
     local filename="node_exporter-${NODE_EXPORTER_VERSION}.${arch}"
     local url="https://github.com/prometheus/node_exporter/releases/download/v${NODE_EXPORTER_VERSION}/${filename}.tar.gz"
 

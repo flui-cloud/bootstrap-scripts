@@ -124,15 +124,17 @@ install_vector() {
     cd /tmp
     echo "Downloading Vector..." >> "$INSTALL_LOG"
 
-    if wget -q https://packages.timber.io/vector/0.34.1/vector-0.34.1-x86_64-unknown-linux-musl.tar.gz 2>> "$INSTALL_LOG"; then
+    local vtarget="x86_64-unknown-linux-musl"
+    case "$(uname -m)" in aarch64 | arm64) vtarget="aarch64-unknown-linux-musl" ;; esac
+    if wget -q "https://packages.timber.io/vector/0.34.1/vector-0.34.1-${vtarget}.tar.gz" 2>> "$INSTALL_LOG"; then
         echo "✓ Vector downloaded successfully" >> "$INSTALL_LOG"
     else
         echo "✗ Failed to download Vector" >> "$INSTALL_LOG"
         error "Failed to download Vector - check $INSTALL_LOG"
     fi
 
-    tar xzf vector-0.34.1-x86_64-unknown-linux-musl.tar.gz 2>> "$INSTALL_LOG"
-    cp vector-x86_64-unknown-linux-musl/bin/vector /usr/local/bin/
+    tar xzf "vector-0.34.1-${vtarget}.tar.gz" 2>> "$INSTALL_LOG"
+    cp "vector-${vtarget}/bin/vector" /usr/local/bin/
     chmod +x /usr/local/bin/vector
     rm -rf vector-*
 

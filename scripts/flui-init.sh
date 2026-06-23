@@ -71,9 +71,10 @@ detect_system() {
             ;;
     esac
 
-    if [[ "$(uname -m)" != "x86_64" ]]; then
-        error "Unsupported architecture: $(uname -m)"
-    fi
+    case "$(uname -m)" in
+        x86_64 | aarch64 | arm64) ;;
+        *) error "Unsupported architecture: $(uname -m)" ;;
+    esac
 
     log "✅ System validation passed"
 }
@@ -87,7 +88,7 @@ update_system() {
         error "Failed to update package lists"
     fi
 
-    if ! apt-get install -qq -y curl wget ca-certificates gnupg software-properties-common apt-transport-https tar gzip systemd; then
+    if ! apt-get install -qq -y curl wget ca-certificates gnupg software-properties-common apt-transport-https tar gzip systemd gettext-base; then
         error "Failed to install essential packages"
     fi
 

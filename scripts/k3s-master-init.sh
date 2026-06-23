@@ -229,12 +229,13 @@ log "Flui.cloud base initialization completed successfully"
 # ============================================================
 # STEP 2: Install kubectl
 # ============================================================
-log "Installing kubectl for cluster interaction..."
+case "$(uname -m)" in aarch64 | arm64) KUBE_ARCH=arm64 ;; *) KUBE_ARCH=amd64 ;; esac
+log "Installing kubectl for cluster interaction (arch ${KUBE_ARCH})..."
 
 if ! command -v snap &> /dev/null; then
     log "snap not available, installing kubectl via curl..."
     KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
-    curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+    curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBE_ARCH}/kubectl"
     chmod +x kubectl
     mv kubectl /usr/local/bin/kubectl
 else
@@ -242,7 +243,7 @@ else
     snap install kubectl --classic 2>&1 | tee -a "$LOG_FILE" || {
         warn "snap install failed, trying curl method..."
         KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
-        curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+        curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBE_ARCH}/kubectl"
         chmod +x kubectl
         mv kubectl /usr/local/bin/kubectl
     }
@@ -256,7 +257,7 @@ else
         if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
             warn "kubectl not found in PATH after ${MAX_RETRIES} retries, trying curl method..."
             KUBECTL_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
-            curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+            curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBE_ARCH}/kubectl"
             chmod +x kubectl
             mv kubectl /usr/local/bin/kubectl
             break
@@ -846,10 +847,13 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
 
     PRIMARY_IP=$(hostname -I | awk '{print $1}')
     export MASTER_IP="$PRIMARY_IP"
+    # Domain IP: an operator-provided public IP wins (BYOS behind NAT or with a
+    # fixed public IP), otherwise the node's detected IP.
+    DOMAIN_IP="${FLUI_MASTER_PUBLIC_IP:-$PRIMARY_IP}"
     # Encode IP with dashes so a numeric-suffixed token (e.g. "royal-gecko-72")
     # cannot collide with nip.io's greedy IPv4 extraction (which would otherwise
     # resolve royal-gecko-72.162.55.56.10.nip.io to 72.162.55.56).
-    DASHED_IP="${PRIMARY_IP//./-}"
+    DASHED_IP="${DOMAIN_IP//./-}"
     if [ -z "${FLUI_BASE_DOMAIN:-}" ]; then
         if [ -n "${NIP_HOSTNAME_TOKEN:-}" ]; then
             FLUI_BASE_DOMAIN="${NIP_HOSTNAME_TOKEN}.${DASHED_IP}.nip.io"
@@ -929,6 +933,9 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD CERTIFICATE_MODE
             export FLUI_BASE_DOMAIN NIP_HOSTNAME_TOKEN
             export FLUI_BOOTSTRAP_NODE_PRIVATE_IP="${PRIVATE_IP:-}"
+            # Public/reachable IP for the API's cluster seed (BYOS: differs from
+            # the internal node IP; empty for provisioned, where MASTER_IP is public).
+            export FLUI_MASTER_PUBLIC_IP="${FLUI_MASTER_PUBLIC_IP:-}"
             envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
         else
             log "⚠️  envsubst not found, using sed for variable substitution..."
@@ -937,6 +944,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s/\${GRAFANA_PASSWORD}/$GRAFANA_PASSWORD/g" \
                 -e "s/\${ENCRYPTION_KEY}/$ENCRYPTION_KEY/g" \
                 -e "s/\${MASTER_IP}/$MASTER_IP/g" \
+                -e "s/\${FLUI_MASTER_PUBLIC_IP}/${FLUI_MASTER_PUBLIC_IP:-}/g" \
                 -e "s|\${FLUI_API_ENDPOINT}|$FLUI_API_ENDPOINT|g" \
                 -e "s/\${CLUSTER_ID}/$CLUSTER_ID/g" \
                 -e "s/\${SERVER_ID}/$SERVER_ID/g" \

@@ -192,9 +192,10 @@ fi
 # STEP 2: Install kubectl (non-fatal — workers don't need it to run the K3s agent)
 # ============================================================
 install_kubectl_via_curl() {
-    local v
+    local v arch
+    case "$(uname -m)" in aarch64 | arm64) arch=arm64 ;; *) arch=amd64 ;; esac
     v=$(curl -fsSL https://dl.k8s.io/release/stable.txt 2>/dev/null) || return 1
-    curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${v}/bin/linux/amd64/kubectl" || return 1
+    curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${v}/bin/linux/${arch}/kubectl" || return 1
     chmod +x /usr/local/bin/kubectl
 }
 
