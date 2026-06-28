@@ -134,6 +134,8 @@ install_vector() {
     fi
 
     tar xzf "vector-0.34.1-${vtarget}.tar.gz" 2>> "$INSTALL_LOG"
+    # Stop a running instance first, else cp fails with "Text file busy" on reinstall.
+    systemctl stop vector 2>/dev/null || true
     cp "vector-${vtarget}/bin/vector" /usr/local/bin/
     chmod +x /usr/local/bin/vector
     rm -rf vector-*

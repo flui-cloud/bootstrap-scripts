@@ -59,6 +59,9 @@ install_node_exporter() {
         error "Failed to extract Node Exporter - check $INSTALL_LOG"
     fi
 
+    # Stop a running instance first, else cp fails with "Text file busy" on reinstall.
+    systemctl stop node-exporter 2>/dev/null || true
+
     if cp "${filename}/node_exporter" /usr/local/bin/ 2>> "$INSTALL_LOG"; then
         echo "✓ Node Exporter binary copied to /usr/local/bin/" >> "$INSTALL_LOG"
     else
