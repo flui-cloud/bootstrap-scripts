@@ -744,6 +744,41 @@ log "✅ kubectl installed and configured"
 log ""
 
 # ============================================================
+# STEP 10b: Configure Traefik ingress (all cluster types)
+# ============================================================
+# K3s runs with --disable servicelb, so without this HelmChartConfig Traefik stays
+# ClusterIP and nothing binds :80/:443 (apps get "connection refused"). Needed on
+# every cluster, not just control.
+log ""
+log "=========================================="
+log "Configuring Traefik ingress (hostPort 80/443)"
+log "=========================================="
+
+TRAEFIK_MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
+mkdir -p "$TRAEFIK_MANIFEST_DIR"
+if curl -fsSL "$MANIFESTS_BASE_URL/common/00a-traefik-config.yaml" -o "$TRAEFIK_MANIFEST_DIR/00a-traefik-config.yaml"; then
+    log "✅ Traefik HelmChartConfig deployed — k3s helm-controller will reconcile Traefik as a hostNetwork DaemonSet"
+else
+    warn "Failed to download common/00a-traefik-config.yaml — Traefik will NOT bind :80/:443 (apps unreachable). Check MANIFESTS_BASE_URL."
+fi
+
+# ============================================================
+# STEP 10c: Install flui-local StorageClass (all cluster types)
+# ============================================================
+# dedicated-persistence apps (managed Postgres) request flui-local and stay
+# Pending without it. Needed on every cluster, not just control. Applied raw.
+log ""
+log "=========================================="
+log "Installing flui-local StorageClass"
+log "=========================================="
+
+if curl -fsSL "$MANIFESTS_BASE_URL/common/01a-flui-local-storage.yaml" -o "$TRAEFIK_MANIFEST_DIR/01a-flui-local-storage.yaml"; then
+    log "✅ flui-local StorageClass + provisioner deployed"
+else
+    warn "Failed to download common/01a-flui-local-storage.yaml — dedicated-persistence apps (managed Postgres) will stay Pending. Check MANIFESTS_BASE_URL."
+fi
+
+# ============================================================
 # STEP 11: Install cert-manager
 # ============================================================
 log ""
@@ -901,7 +936,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     : "${FLUI_AUTHZ_IMAGE_TAG:=latest}"
     export FLUI_API_IMAGE_TAG FLUI_WEB_IMAGE_TAG FLUI_AUTHZ_IMAGE_TAG
 
-    MANIFESTS="00-secrets 01-namespace 01a-flui-local-storage 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 00a-traefik-config"
+    # 00a-traefik-config and 01a-flui-local-storage now applied in STEP 10b/10c.
+    MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web"
     if [ "$AUTH_MODE" = "oidc" ]; then
         MANIFESTS="$MANIFESTS 11-zitadel"
         log "AUTH_MODE=oidc: Zitadel will be deployed"
