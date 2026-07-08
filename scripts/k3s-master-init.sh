@@ -818,9 +818,13 @@ else
     log "✅ cert-manager installation completed"
 
     # ============================================================
-    # STEP 11b: Install cert-manager-webhook-hetzner (Hetzner only)
+    # STEP 11b: Install cert-manager-webhook-hetzner
     # ============================================================
-    if [ "$CLOUD_PROVIDER" = "hetzner" ]; then
+    # Installed with cert-manager regardless of CLOUD_PROVIDER: the webhook
+    # solves DNS-01 for zones hosted on Hetzner DNS, and the zone's DNS
+    # provider is independent of the compute provider (e.g. a BYOS or
+    # Scaleway cluster using a Hetzner-managed zone for wildcard certs).
+    if [ "${INSTALL_HETZNER_DNS_WEBHOOK:-true}" = "true" ]; then
         log ""
         log "=========================================="
         log "Installing cert-manager-webhook-hetzner"
@@ -853,7 +857,7 @@ else
             warn "cert-manager-webhook-hetzner installation failed — DNS-01 wildcard certificates will not work"
         fi
     else
-        log "Skipping cert-manager-webhook-hetzner (CLOUD_PROVIDER=$CLOUD_PROVIDER, not hetzner)"
+        log "Skipping cert-manager-webhook-hetzner (INSTALL_HETZNER_DNS_WEBHOOK=false)"
     fi
 fi
 
