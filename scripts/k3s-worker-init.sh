@@ -325,6 +325,41 @@ if [ -n "${PRIVATE_IP:-}" ] && [ -n "${PRIVATE_IFACE:-}" ]; then
   log "K3s agent will bind to private IP $PRIVATE_IP via $PRIVATE_IFACE"
 fi
 
+# Pin DNS resolvers (host + kubelet) — same rationale as the master's
+# STEP 2.7: hosting-provider recursors cache stale/negative answers for the
+# full TTL, breaking ACME self-checks and fresh-record lookups on pods
+# scheduled here. Opt out with PIN_HOST_DNS=false.
+PIN_HOST_DNS="${PIN_HOST_DNS:-true}"
+HOST_DNS_SERVERS="${HOST_DNS_SERVERS:-1.1.1.1 8.8.8.8}"
+K3S_RESOLV_CONF_FLAG=""
+if [ "$PIN_HOST_DNS" = "true" ]; then
+    FIRST_DNS=$(echo "$HOST_DNS_SERVERS" | awk '{print $1}')
+    if timeout 3 bash -c "</dev/tcp/$FIRST_DNS/53" 2>/dev/null; then
+        mkdir -p /etc/rancher
+        : > /etc/rancher/flui-resolv.conf
+        for ns in $HOST_DNS_SERVERS; do
+            echo "nameserver $ns" >> /etc/rancher/flui-resolv.conf
+        done
+        K3S_RESOLV_CONF_FLAG="--resolv-conf=/etc/rancher/flui-resolv.conf"
+
+        if command -v resolvectl &>/dev/null && systemctl is-active -q systemd-resolved; then
+            mkdir -p /etc/systemd/resolved.conf.d
+            {
+                echo "[Resolve]"
+                echo "DNS=$HOST_DNS_SERVERS"
+                echo "FallbackDNS=9.9.9.9"
+                echo "Domains=~."
+            } > /etc/systemd/resolved.conf.d/99-flui-dns.conf
+            systemctl restart systemd-resolved
+        fi
+        log "✅ DNS resolvers pinned to $HOST_DNS_SERVERS (host drop-in + kubelet resolv-conf)"
+    else
+        warn "Public DNS $FIRST_DNS unreachable on port 53 — keeping the host's existing resolvers"
+    fi
+else
+    log "DNS resolver pinning skipped (PIN_HOST_DNS=false)"
+fi
+
 # Install K3s as agent (worker)
 log "Installing K3s agent..."
 curl -sfL https://get.k3s.io | \
@@ -333,7 +368,8 @@ curl -sfL https://get.k3s.io | \
   --server "$K3S_URL" \
   --token "$K3S_TOKEN" \
   --node-name="$INSTANCE_NAME" \
-  $K3S_NODE_IP_FLAGS || error "Failed to install K3s agent"
+  $K3S_NODE_IP_FLAGS \
+  $K3S_RESOLV_CONF_FLAG || error "Failed to install K3s agent"
 
 # Wait for K3s agent service to be active
 log "Waiting for K3s agent service to be active..."

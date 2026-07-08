@@ -375,6 +375,50 @@ else
 fi
 
 # ============================================================
+# STEP 2.7: Pin DNS resolvers (host + kubelet/CoreDNS)
+# ============================================================
+# Hosting-provider recursors (the typical default on BYOS hosts) cache
+# answers for the full TTL — including NXDOMAIN for the zone's SOA minimum
+# (1h on Hetzner DNS) — which stalls ACME self-checks and serves stale IPs
+# right after a DNS record is created or changed. Pin public resolvers for
+# the host (systemd-resolved drop-in; Domains=~. wins over per-link
+# DHCP/netplan DNS without touching network config) and for the cluster
+# (dedicated resolv.conf handed to the kubelet, so CoreDNS forwards to the
+# same servers). Opt out with PIN_HOST_DNS=false (e.g. corporate networks
+# where public DNS egress is blocked — the port-53 probe below also skips
+# pinning automatically in that case).
+PIN_HOST_DNS="${PIN_HOST_DNS:-true}"
+HOST_DNS_SERVERS="${HOST_DNS_SERVERS:-1.1.1.1 8.8.8.8}"
+K3S_RESOLV_CONF_FLAG=""
+if [ "$PIN_HOST_DNS" = "true" ]; then
+    FIRST_DNS=$(echo "$HOST_DNS_SERVERS" | awk '{print $1}')
+    if timeout 3 bash -c "</dev/tcp/$FIRST_DNS/53" 2>/dev/null; then
+        mkdir -p /etc/rancher
+        : > /etc/rancher/flui-resolv.conf
+        for ns in $HOST_DNS_SERVERS; do
+            echo "nameserver $ns" >> /etc/rancher/flui-resolv.conf
+        done
+        K3S_RESOLV_CONF_FLAG="--resolv-conf=/etc/rancher/flui-resolv.conf"
+
+        if command -v resolvectl &>/dev/null && systemctl is-active -q systemd-resolved; then
+            mkdir -p /etc/systemd/resolved.conf.d
+            {
+                echo "[Resolve]"
+                echo "DNS=$HOST_DNS_SERVERS"
+                echo "FallbackDNS=9.9.9.9"
+                echo "Domains=~."
+            } > /etc/systemd/resolved.conf.d/99-flui-dns.conf
+            systemctl restart systemd-resolved
+        fi
+        log "✅ DNS resolvers pinned to $HOST_DNS_SERVERS (host drop-in + kubelet resolv-conf)"
+    else
+        warn "Public DNS $FIRST_DNS unreachable on port 53 — keeping the host's existing resolvers"
+    fi
+else
+    log "DNS resolver pinning skipped (PIN_HOST_DNS=false)"
+fi
+
+# ============================================================
 # STEP 3: Install K3s Master
 # ============================================================
 
@@ -419,6 +463,7 @@ curl -sfL https://get.k3s.io | \
   --tls-san="$PRIMARY_IP" \
   ${PRIVATE_IP:+--tls-san="$PRIVATE_IP"} \
   $K3S_NODE_IP_FLAGS \
+  $K3S_RESOLV_CONF_FLAG \
   --write-kubeconfig-mode=644 2>&1 | tee "$K3S_INSTALL_LOG" || {
     log "K3s installation failed! See $K3S_INSTALL_LOG for details"
     log "Last 50 lines of installation log:"
@@ -793,6 +838,23 @@ log "→ Applying cert-manager manifests..."
 if ! kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"; then
     warn "Failed to apply cert-manager manifests - TLS certificate management will not be available"
 else
+    # Pin ACME self-check resolvers to public DNS. The node's resolvers (often
+    # the hosting provider's, especially on BYOS) can negative-cache a
+    # just-created record for the zone's SOA minimum (1h on Hetzner DNS) and
+    # stall every HTTP-01/DNS-01 challenge on freshly created endpoints.
+    ACME_SELFCHECK_NAMESERVERS="${ACME_SELFCHECK_NAMESERVERS:-1.1.1.1:53,8.8.8.8:53}"
+    if kubectl -n cert-manager get deployment cert-manager -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -q 'dns01-recursive-nameservers'; then
+        log "ACME self-check resolvers already pinned — skipping"
+    elif kubectl -n cert-manager patch deployment cert-manager --type=json -p="[
+        {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/args/-\",\"value\":\"--dns01-recursive-nameservers=${ACME_SELFCHECK_NAMESERVERS}\"},
+        {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/args/-\",\"value\":\"--dns01-recursive-nameservers-only\"},
+        {\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/args/-\",\"value\":\"--acme-http01-solver-nameservers=${ACME_SELFCHECK_NAMESERVERS}\"}
+    ]"; then
+        log "✅ ACME self-check resolvers pinned to ${ACME_SELFCHECK_NAMESERVERS}"
+    else
+        warn "Failed to pin ACME self-check resolvers — challenges will use the node's resolvers"
+    fi
+
     log "→ Waiting for cert-manager deployments to be available..."
 
     CERT_MANAGER_TIMEOUT=120
