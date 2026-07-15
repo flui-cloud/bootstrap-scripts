@@ -126,7 +126,13 @@ install_vector() {
 
     local vtarget="x86_64-unknown-linux-musl"
     case "$(uname -m)" in aarch64 | arm64) vtarget="aarch64-unknown-linux-musl" ;; esac
-    if wget -q "https://packages.timber.io/vector/0.34.1/vector-0.34.1-${vtarget}.tar.gz" 2>> "$INSTALL_LOG"; then
+    # curl, not wget: it does Happy Eyeballs, so a host that resolves to an
+    # unreachable AAAA costs milliseconds instead of a full TCP timeout. wget
+    # here once turned a 4s download into 275s on a cluster whose firewall
+    # allowed only IPv4 egress — the rest of the bootstrap never noticed,
+    # because everything else already uses curl.
+    if curl -fsSL "https://packages.timber.io/vector/0.34.1/vector-0.34.1-${vtarget}.tar.gz" \
+        -o "vector-0.34.1-${vtarget}.tar.gz" 2>> "$INSTALL_LOG"; then
         echo "✓ Vector downloaded successfully" >> "$INSTALL_LOG"
     else
         echo "✗ Failed to download Vector" >> "$INSTALL_LOG"
