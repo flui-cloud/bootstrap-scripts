@@ -1361,6 +1361,17 @@ else
             fi
             log "✅ Workload vmagent manifest deployed"
             rm -f /tmp/vmagent.yaml
+
+            # kube-state-metrics must run here too: the flui:app_* recording rules on
+            # the OBS cluster join every metric against kube_pod_labels, which only KSM
+            # produces. Without it this cluster's apps report null for every metric.
+            log "→ Deploying workload kube-state-metrics..."
+            if curl -fsSL "$MANIFESTS_BASE_URL/workload/kube-state-metrics.yaml" \
+                -o "$MANIFEST_DIR/kube-state-metrics.yaml"; then
+                log "✅ Workload kube-state-metrics manifest deployed"
+            else
+                warn "Failed to download kube-state-metrics manifest — app metrics will read null"
+            fi
         else
             warn "Failed to download workload vmagent manifest — metrics push disabled"
         fi

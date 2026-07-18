@@ -139,6 +139,20 @@ data:
             target_label: __address__
           - source_labels: [__meta_kubernetes_node_name]
             target_label: node
+
+      # kube_pod_labels / kube_deployment_* are the join partner every flui:app_*
+      # recording rule needs — without this job the rules match nothing and every
+      # app metric on this cluster reads null.
+      - job_name: kube-state-metrics
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - flui-monitoring
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep
+            regex: kube-state-metrics
 ---
 apiVersion: apps/v1
 kind: Deployment
