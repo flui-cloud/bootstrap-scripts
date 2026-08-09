@@ -441,6 +441,24 @@ if parse_err == null {
   # JSON log detected - extract standard fields
   # Supports: Pino, Winston, Bunyan, Serilog (JSON mode), Logback (JSON), Monolog (JSON)
 
+  # Traefik access logs carry the request path WITH its query string, which routinely
+  # holds bearer tokens, password-reset links and PII. Edge logging is always on and
+  # users cannot turn it off, so the query is stripped here, before anything leaves the
+  # node. `.message` is re-encoded rather than only fixing a derived field: the Loki
+  # sink serialises the whole event, so the untouched raw line would ship verbatim.
+  if exists(parsed_json.RequestPath) && exists(parsed_json.DownstreamStatus) {
+    req_path, req_path_err = string(parsed_json.RequestPath)
+    if req_path_err == null {
+      parsed_json.RequestPath = replace(req_path, r'\?.*', "")
+    }
+    req_uri, req_uri_err = string(parsed_json.RequestURI)
+    if req_uri_err == null {
+      parsed_json.RequestURI = replace(req_uri, r'\?.*', "")
+    }
+    .message = encode_json(parsed_json)
+    .access_log = true
+  }
+
   # Extract level field
   if exists(parsed_json.level) {
     .level = downcase(string!(parsed_json.level))

@@ -65,6 +65,16 @@ data:
       max_query_length: 721h
       # Retention period: 7 days (168h)
       retention_period: 168h
+      # Traefik's stream is the highest-volume, lowest-value one in the system: one line
+      # per HTTP request, and scanner traffic inflates it further. Three days is enough to
+      # drill into a recent incident without it dominating disk. This also shortens
+      # Traefik's own startup/error logs — a stream selector can only match indexed
+      # labels, and `access_log` is a field, so separating the two would cost a new label
+      # and a new stream for no real benefit.
+      retention_stream:
+        - selector: '{container="traefik"}'
+          priority: 1
+          period: 72h
 
     distributor:
       ring:

@@ -26,6 +26,32 @@ spec:
         add:
           - NET_BIND_SERVICE
       allowPrivilegeEscalation: true
+    # Traefik's default latency buckets are 0.1/0.3/1.2/5s. Every sub-second API lands
+    # in the first bucket, so histogram_quantile interpolates inside [0, 0.1] and a p95
+    # reads ~95ms for an app whose mean is 9ms — an artefact of the bucket layout, not a
+    # measurement. These boundaries resolve the range real HTTP APIs actually live in.
+    # Passed as CLI flags rather than chart values: the flag names are verifiable against
+    # the running container's own args, the chart's values schema is version-dependent.
+    #
+    # addRoutersLabels is deliberately left off — nothing consumes per-router series yet,
+    # and it would multiply cardinality for no reader.
+    #
+    # ORDERING HAZARD — read before applying this file to an existing cluster.
+    # Access logs below emit the request path with its query string, which carries
+    # bearer tokens and reset links. Those are stripped by Vector on the node
+    # (`modules/vector.sh`, the RequestPath redaction in enrich_k8s_pods), NOT by
+    # Traefik, which cannot drop a query string without dropping the whole path.
+    # Vector's config is written at node bootstrap, so on an already-running cluster
+    # the node config must be refreshed FIRST. Applying this file to nodes still
+    # running the old Vector config ships unredacted query strings to Loki.
+    #
+    # Headers are explicitly dropped: it is Traefik's default, but this one is
+    # security-relevant enough to state rather than inherit.
+    additionalArguments:
+      - "--metrics.prometheus.buckets=0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10"
+      - "--accesslog=true"
+      - "--accesslog.format=json"
+      - "--accesslog.fields.headers.defaultmode=drop"
     ports:
       metrics:
         port: 9101
