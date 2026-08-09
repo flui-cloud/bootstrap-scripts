@@ -1,0 +1,164 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: flui-control
+  labels:
+    app: alertmanager
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/managed-by: flui-cloud
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+
+    # Alertmanager does the part that is tedious to rebuild — grouping, deduplication,
+    # silences, inhibition — and then hands off. It knows nothing about Flui projects,
+    # users or RBAC, so it must not own delivery: a receiver per tenant would be
+    # unmanageable. Everything goes to one webhook and Flui decides who to tell.
+    route:
+      receiver: flui-api
+      group_by: ['alertname', 'flui_kind', 'namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+
+    receivers:
+      - name: flui-api
+        webhook_configs:
+          - url: http://flui-api.flui-system.svc.cluster.local:3000/api/v1/webhooks/alerts
+            send_resolved: true
+            max_alerts: 0
+            # The API is reachable through the public ingress, so the receiver must be
+            # authenticated even though Alertmanager only ever calls it in-cluster.
+            # Sent as a bearer token: Alertmanager's http_config cannot set the
+            # X-Flui-Token header other Flui webhooks use, so the endpoint accepts both.
+            http_config:
+              authorization:
+                type: Bearer
+                credentials: "${ALERTS_WEBHOOK_TOKEN}"
+
+    inhibit_rules:
+      # An app already firing critical does not also need its warning delivered.
+      - source_matchers: ['severity="critical"']
+        target_matchers: ['severity="warning"']
+        equal: ['namespace', 'label_app_kubernetes_io_name']
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alertmanager-data
+  namespace: flui-control
+  labels:
+    app: alertmanager
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/managed-by: flui-cloud
+    flui.cloud/managed: "true"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: flui-control
+  labels:
+    app: alertmanager
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/managed-by: flui-cloud
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/managed-by: flui-cloud
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.27.0
+          args:
+            - '--config.file=/etc/alertmanager/alertmanager.yml'
+            - '--storage.path=/alertmanager'
+            # Silences and notification state live on disk. Without the PVC a restart
+            # during maintenance would resurrect every alert someone had silenced.
+            - '--data.retention=120h'
+          ports:
+            - name: http
+              containerPort: 9093
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: data
+              mountPath: /alertmanager
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9093
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9093
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: alertmanager-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: flui-control
+  labels:
+    app: alertmanager
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/managed-by: flui-cloud
+    flui.cloud/managed: "true"
+spec:
+  # ClusterIP on purpose. Alertmanager has no authentication of its own, and its API
+  # can silence alerts — exposing it would let anyone mute the platform's own alarms.
+  type: ClusterIP
+  selector:
+    app: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: 9093

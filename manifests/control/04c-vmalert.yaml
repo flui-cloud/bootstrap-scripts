@@ -261,6 +261,119 @@ data:
                 * on (namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
+  alerting_rules.yml: |
+    groups:
+      # Conditions worth waking someone for. Every alert carries flui_kind so the
+      # receiver can resolve the subject: `application` alerts key off the k8s label,
+      # `traffic` alerts off the Traefik service id, `node` alerts off the instance.
+      - name: flui_app_health
+        interval: 30s
+        rules:
+          - alert: FluiAppDown
+            expr: flui:app_up == 0
+            for: 5m
+            labels:
+              severity: critical
+              flui_kind: application
+            annotations:
+              summary: "Application {{ $labels.label_app_kubernetes_io_name }} is down"
+              description: "No healthy replica in namespace {{ $labels.namespace }} for 5 minutes."
+
+          - alert: FluiAppCrashLooping
+            expr: flui:app_restart_rate_1h > 3
+            for: 10m
+            labels:
+              severity: critical
+              flui_kind: application
+            annotations:
+              summary: "Application {{ $labels.label_app_kubernetes_io_name }} is crash looping"
+              description: "More than 3 container restarts in the last hour."
+
+          - alert: FluiAppNotFullyReady
+            expr: flui:app_status_ready_ratio < 1
+            for: 15m
+            labels:
+              severity: warning
+              flui_kind: application
+            annotations:
+              summary: "Application {{ $labels.label_app_kubernetes_io_name }} has unready replicas"
+
+          - alert: FluiAppMemoryNearLimit
+            expr: flui:app_memory_utilization_percent > 90
+            for: 10m
+            labels:
+              severity: warning
+              flui_kind: application
+            annotations:
+              summary: "Application {{ $labels.label_app_kubernetes_io_name }} is near its memory limit"
+              description: "Above 90% of the configured limit for 10 minutes; an OOM kill is likely."
+
+      - name: flui_app_traffic
+        interval: 30s
+        rules:
+          # The rate guard matters more than the threshold: without it a single failed
+          # request against an idle endpoint reads as a 100% error rate and pages someone.
+          # `cluster_id` is kept in every `by` clause: vmagent stamps it as an external
+          # label and all clusters remote-write into the same vmsingle, so aggregating
+          # on `service` alone would merge two clusters' traffic into one alert and
+          # leave the receiver unable to say which cluster it came from.
+          - alert: FluiAppHighErrorRate
+            expr: |
+              (
+                sum by (cluster_id, service) (rate(traefik_service_requests_total{code=~"5.."}[5m]))
+                /
+                sum by (cluster_id, service) (rate(traefik_service_requests_total[5m]))
+              ) * 100 > 5
+              and
+              sum by (cluster_id, service) (rate(traefik_service_requests_total[5m])) > 0.05
+            for: 10m
+            labels:
+              severity: critical
+              flui_kind: traffic
+            annotations:
+              summary: "{{ $labels.service }} is returning server errors"
+              description: "More than 5% of requests are 5xx over the last 10 minutes."
+
+          - alert: FluiAppHighLatency
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (cluster_id, service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))
+              ) > 2
+              and
+              sum by (cluster_id, service) (rate(traefik_service_requests_total[5m])) > 0.05
+            for: 10m
+            labels:
+              severity: warning
+              flui_kind: traffic
+            annotations:
+              summary: "{{ $labels.service }} is slow"
+              description: "p95 latency above 2s for 10 minutes."
+
+      - name: flui_node
+        interval: 30s
+        rules:
+          - alert: FluiNodeDiskNearFull
+            expr: |
+              100 - (
+                (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100
+              ) > 85
+            for: 15m
+            labels:
+              severity: critical
+              flui_kind: node
+            annotations:
+              summary: "Disk above 85% on {{ $labels.instance }}"
+              description: "A full root filesystem takes the node down; free space or resize."
+
+          - alert: FluiNodeDown
+            expr: up{job="node-exporter"} == 0
+            for: 5m
+            labels:
+              severity: critical
+              flui_kind: node
+            annotations:
+              summary: "Node {{ $labels.instance }} is not reporting"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -295,8 +408,15 @@ spec:
           image: victoriametrics/vmalert:v1.99.0
           args:
             - '-rule=/etc/vmalert/recording_rules.yml'
+            - '-rule=/etc/vmalert/alerting_rules.yml'
+            - '-notifier.url=http://alertmanager.flui-control.svc.cluster.local:9093'
             - '-datasource.url=http://vmsingle.flui-control.svc.cluster.local:8428'
             - '-remoteWrite.url=http://vmsingle.flui-control.svc.cluster.local:8428'
+            # Restores alert state on startup from what remoteWrite persisted. Without
+            # it every vmalert restart re-fires each active alert with a fresh startsAt,
+            # which reads downstream as a brand-new incident — so a platform upgrade
+            # would page for everything already firing.
+            - '-remoteRead.url=http://vmsingle.flui-control.svc.cluster.local:8428'
             - '-evaluationInterval=30s'
             - '-httpListenAddr=:8880'
           ports:

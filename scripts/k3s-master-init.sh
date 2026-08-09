@@ -1002,8 +1002,25 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     : "${FLUI_AUTHZ_IMAGE_TAG:=latest}"
     export FLUI_API_IMAGE_TAG FLUI_WEB_IMAGE_TAG FLUI_AUTHZ_IMAGE_TAG
 
+    # Shared secret between Alertmanager and the API's /webhooks/alerts receiver.
+    # Generated here, not by the CLI: both ends live in this cluster, so the token
+    # never has to leave it. Reused when it already exists — the two manifests are
+    # rendered from the same value, and a re-run that minted a fresh one would
+    # desync them until both pods happened to restart.
+    if [ -z "${ALERTS_WEBHOOK_TOKEN:-}" ]; then
+        ALERTS_WEBHOOK_TOKEN=$(kubectl get secret flui-secrets -n flui-system \
+            -o jsonpath='{.data.ALERTS_WEBHOOK_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+    if [ -z "${ALERTS_WEBHOOK_TOKEN:-}" ]; then
+        ALERTS_WEBHOOK_TOKEN=$(openssl rand -hex 32)
+        log "Generated a new alerts webhook token"
+    else
+        log "Reusing the existing alerts webhook token"
+    fi
+    export ALERTS_WEBHOOK_TOKEN
+
     # 00a-traefik-config and 01a-flui-local-storage now applied in STEP 10b/10c.
-    MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web"
+    MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 04d-alertmanager 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web"
     if [ "$AUTH_MODE" = "oidc" ]; then
         MANIFESTS="$MANIFESTS 11-zitadel"
         log "AUTH_MODE=oidc: Zitadel will be deployed"
@@ -1065,6 +1082,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s/\${AUTH_MODE}/$AUTH_MODE/g" \
                 -e "s/\${CERTIFICATE_MODE}/$CERTIFICATE_MODE/g" \
                 -e "s|\${JWT_SECRET}|$JWT_SECRET|g" \
+                -e "s|\${ALERTS_WEBHOOK_TOKEN}|$ALERTS_WEBHOOK_TOKEN|g" \
                 -e "s/\${ADMIN_EMAIL}/$ADMIN_EMAIL/g" \
                 -e "s|\${ADMIN_PASSWORD}|$ADMIN_PASSWORD|g" \
                 -e "s/\${FLUI_BASE_DOMAIN}/$FLUI_BASE_DOMAIN/g" \
