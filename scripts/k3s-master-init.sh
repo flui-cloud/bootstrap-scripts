@@ -921,6 +921,49 @@ else
     else
         log "Skipping cert-manager-webhook-hetzner (INSTALL_HETZNER_DNS_WEBHOOK=false)"
     fi
+
+    # ============================================================
+    # STEP 11c: Install scaleway-certmanager-webhook
+    # ============================================================
+    # A cluster can hold zones from several DNS providers at once, and the
+    # wildcard ClusterIssuer carries one dns01 solver per provider. Each solver
+    # needs its own webhook API group installed (acme.scaleway.com here), or
+    # its challenges stall.
+    if [ "${INSTALL_SCALEWAY_DNS_WEBHOOK:-true}" = "true" ]; then
+        log ""
+        log "=========================================="
+        log "Installing scaleway-certmanager-webhook"
+        log "=========================================="
+
+        SCALEWAY_WEBHOOK_VERSION="${SCALEWAY_WEBHOOK_VERSION:-0.4.3}"
+        log "scaleway-certmanager-webhook version: $SCALEWAY_WEBHOOK_VERSION"
+
+        if ! command -v helm &>/dev/null; then
+            log "→ Installing Helm..."
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        fi
+
+        if helm repo list 2>/dev/null | grep -q scaleway; then
+            helm repo update scaleway
+        else
+            helm repo add scaleway https://helm.scw.cloud/
+            helm repo update scaleway
+        fi
+
+        if helm upgrade --install scaleway-certmanager-webhook \
+            scaleway/scaleway-certmanager-webhook \
+            --namespace cert-manager \
+            --version "${SCALEWAY_WEBHOOK_VERSION}" \
+            --wait \
+            --timeout 120s; then
+
+            log "✅ scaleway-certmanager-webhook installed"
+        else
+            warn "scaleway-certmanager-webhook installation failed — DNS-01 wildcard certificates for Scaleway-hosted zones will not work"
+        fi
+    else
+        log "Skipping scaleway-certmanager-webhook (INSTALL_SCALEWAY_DNS_WEBHOOK=false)"
+    fi
 fi
 
 # ============================================================
