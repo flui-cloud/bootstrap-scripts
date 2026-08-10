@@ -270,6 +270,40 @@ else
   warn "ADMIN_EMAIL or ADMIN_PASSWORD not set — skipping custom admin user creation"
 fi
 
+# --- Step 7.6: Close self-registration ---------------------------------------
+# The ZITADEL_DEFAULTINSTANCE_LOGINPOLICY_ALLOWREGISTER env only applies when the
+# instance is first created, so it does nothing for an already-provisioned cluster.
+# This script is idempotent and runs on every install, so enforcing it here too is
+# what converges existing clusters.
+#
+# The org may still inherit the default policy (isDefault=true) — that one cannot
+# be updated in place, it has to be replaced by a custom policy. Hence POST vs PUT,
+# and the read-then-merge: a create takes the FULL policy, so anything not carried
+# over would silently revert to a Zitadel default.
+log "Disabling self-registration on the login page..."
+LOGIN_POLICY=$(zitadel_api "${ZITADEL_SVC}/management/v1/policies/login")
+IS_DEFAULT=$(echo "$LOGIN_POLICY" | jq -r '.policy.isDefault // false')
+ALLOW_REGISTER=$(echo "$LOGIN_POLICY" | jq -r '.policy.allowRegister // true')
+
+if [ "$ALLOW_REGISTER" = "false" ]; then
+  ok "Self-registration already disabled"
+else
+  POLICY_BODY=$(echo "$LOGIN_POLICY" | jq -c '.policy | del(.isDefault, .details) | .allowRegister = false')
+  if [ "$IS_DEFAULT" = "true" ]; then
+    POLICY_METHOD="POST"
+  else
+    POLICY_METHOD="PUT"
+  fi
+  POLICY_RES=$(zitadel_api -X "$POLICY_METHOD" \
+    "${ZITADEL_SVC}/management/v1/policies/login" -d "$POLICY_BODY")
+  VERIFY=$(zitadel_api "${ZITADEL_SVC}/management/v1/policies/login" | jq -r '.policy.allowRegister // true')
+  if [ "$VERIFY" = "false" ]; then
+    ok "Self-registration disabled (${POLICY_METHOD})"
+  else
+    warn "Could not disable self-registration — the login page still offers 'register': ${POLICY_RES}"
+  fi
+fi
+
 # --- Step 8: Patch flui-secrets ----------------------------------------------
 log "Patching flui-secrets..."
 kubectl patch secret flui-secrets -n flui-system --type merge \

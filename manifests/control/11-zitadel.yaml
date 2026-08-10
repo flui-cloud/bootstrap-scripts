@@ -169,6 +169,11 @@ spec:
             # Disable LoginV2 redirect — default is true in recent Zitadel versions.
             - name: ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED
               value: "false"
+            # No self-registration — this login page fronts the control plane and is
+            # internet-reachable, so Zitadel's default "register" button would let
+            # anyone create an account on the instance that owns the servers.
+            - name: ZITADEL_DEFAULTINSTANCE_LOGINPOLICY_ALLOWREGISTER
+              value: "false"
           volumeMounts:
             - name: config
               mountPath: /config
