@@ -14,6 +14,10 @@ spec:
       - http01:
           ingress:
             class: traefik
+            # cert-manager defaults the solver Service to NodePort, which a
+            # namespace whose quota forbids NodePorts refuses outright. Traefik
+            # reaches the solver through the Ingress cert-manager creates.
+            serviceType: ClusterIP
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
