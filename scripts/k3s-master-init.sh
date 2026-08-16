@@ -1062,6 +1062,23 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     fi
     export ALERTS_WEBHOOK_TOKEN
 
+    # Seals provider API keys, access-key pairs and SSH private keys inside this
+    # installation. Generated on the master for the same reason as the token
+    # above — it protects data that never leaves this cluster, so neither should
+    # it. Reused when already present: minting a fresh one on a re-run would
+    # orphan every record sealed with the previous value.
+    if [ -z "${SSH_KEY_ENCRYPTION_KEY:-}" ]; then
+        SSH_KEY_ENCRYPTION_KEY=$(kubectl get secret flui-secrets -n flui-system \
+            -o jsonpath='{.data.SSH_KEY_ENCRYPTION_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+    if [ -z "${SSH_KEY_ENCRYPTION_KEY:-}" ]; then
+        SSH_KEY_ENCRYPTION_KEY=$(openssl rand -hex 32)
+        log "Generated a new secret-encryption key for this installation"
+    else
+        log "Reusing the existing secret-encryption key"
+    fi
+    export SSH_KEY_ENCRYPTION_KEY
+
     # 00a-traefik-config and 01a-flui-local-storage now applied in STEP 10b/10c.
     MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 04d-alertmanager 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web"
     if [ "$AUTH_MODE" = "oidc" ]; then
@@ -1105,6 +1122,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s/\${REDIS_PASSWORD}/$REDIS_PASSWORD/g" \
                 -e "s/\${GRAFANA_PASSWORD}/$GRAFANA_PASSWORD/g" \
                 -e "s/\${ENCRYPTION_KEY}/$ENCRYPTION_KEY/g" \
+                -e "s/\${SSH_KEY_ENCRYPTION_KEY}/$SSH_KEY_ENCRYPTION_KEY/g" \
                 -e "s/\${MASTER_IP}/$MASTER_IP/g" \
                 -e "s/\${FLUI_MASTER_PUBLIC_IP}/${FLUI_MASTER_PUBLIC_IP:-}/g" \
                 -e "s|\${FLUI_API_ENDPOINT}|$FLUI_API_ENDPOINT|g" \
