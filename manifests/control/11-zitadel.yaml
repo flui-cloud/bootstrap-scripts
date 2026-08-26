@@ -82,6 +82,8 @@ metadata:
     flui.cloud/managed: "true"
     flui.cloud/scope: "system"
     flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 spec:
   accessModes:
     - ReadWriteOnce
@@ -246,6 +248,8 @@ metadata:
     flui.cloud/managed: "true"
     flui.cloud/scope: "system"
     flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 spec:
   entryPoints:
     - websecure

@@ -16,3 +16,11 @@ Thumbs.db
 # Temporary files
 *.tmp
 tmp/
+
+# Controllo di completezza delle etichette di provenienza sui manifest.
+# Scritto il 2026-08-26 e NON agganciato: questo repo non ha una CI, e l'unico
+# momento in cui i manifest vengono eseguiti è la CLI che crea un cluster —
+# troppo tardi, e sulla macchina di chi installa. Tenuto fuori dal repo finché
+# non esiste un posto dove possa fallire davvero. Il perché delle etichette sta
+# in ~/Project/flui/ANALISI_APP_DI_SISTEMA.md e nelle decisioni 213-214.
+scripts/check-manifest-provenance.sh

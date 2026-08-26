@@ -6,6 +6,11 @@ metadata:
     name: flui-system
     managed-by: "flui-cloud"
     flui.cloud/tier: "platform"
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 ---
 apiVersion: v1
 kind: Namespace
@@ -15,6 +20,11 @@ metadata:
     name: flui-control
     managed-by: "flui-cloud"
     flui.cloud/tier: "observability"
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 ---
 apiVersion: v1
 kind: Namespace
@@ -24,3 +34,8 @@ metadata:
     name: build-agents
     managed-by: "flui-cloud"
     flui.cloud/tier: "ci"
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"

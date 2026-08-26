@@ -59,6 +59,10 @@ metadata:
     app.kubernetes.io/name: alertmanager
     app.kubernetes.io/managed-by: flui-cloud
     flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 spec:
   accessModes:
     - ReadWriteOnce
@@ -152,6 +156,10 @@ metadata:
     app.kubernetes.io/name: alertmanager
     app.kubernetes.io/managed-by: flui-cloud
     flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 spec:
   # ClusterIP on purpose. Alertmanager has no authentication of its own, and its API
   # can silence alerts — exposing it would let anyone mute the platform's own alarms.
