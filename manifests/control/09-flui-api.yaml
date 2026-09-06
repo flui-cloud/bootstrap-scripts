@@ -92,6 +92,17 @@ spec:
                 name: flui-api-config
             - secretRef:
                 name: flui-secrets
+          # Without this the whole boot allowance was the liveness probe's 90
+          # seconds, so anything slower was fatal rather than slow: a single
+          # powered-off cluster once kept the API crashlooping. 5 minutes is
+          # what makes the next slow boot survivable.
+          startupProbe:
+            httpGet:
+              path: /api/v1/health/ping
+              port: 3000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /api/v1/health/ping
