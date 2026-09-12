@@ -33,7 +33,7 @@ zitadel_api()  {
 
 if ! command -v jq &>/dev/null; then
   log "Installing jq..."
-  apt-get update -qq && apt-get install -y -qq jq >/dev/null 2>&1
+  apt-get -o DPkg::Lock::Timeout=180 update -qq && apt-get -o DPkg::Lock::Timeout=180 install -y -qq jq >/dev/null 2>&1
 fi
 
 # --- Discover cluster info ---------------------------------------------------

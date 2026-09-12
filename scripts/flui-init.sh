@@ -84,11 +84,14 @@ update_system() {
 
     export DEBIAN_FRONTEND=noninteractive
 
-    if ! apt-get update -qq; then
+    # unattended-upgrades can be mid-run this early after boot and hold the
+    # dpkg lock for minutes; let apt itself wait for it instead of failing
+    # the whole bootstrap on the first collision.
+    if ! apt-get -o DPkg::Lock::Timeout=180 update -qq; then
         error "Failed to update package lists"
     fi
 
-    if ! apt-get install -qq -y curl wget ca-certificates gnupg software-properties-common apt-transport-https tar gzip systemd gettext-base; then
+    if ! apt-get -o DPkg::Lock::Timeout=180 install -qq -y curl wget ca-certificates gnupg software-properties-common apt-transport-https tar gzip systemd gettext-base; then
         error "Failed to install essential packages"
     fi
 
@@ -237,7 +240,7 @@ install_ca_public_key() {
 configure_security() {
     log "Configuring security..."
 
-    if ! apt-get install -qq -y fail2ban; then
+    if ! apt-get -o DPkg::Lock::Timeout=180 install -qq -y fail2ban; then
         warn "Failed to install security packages"
         return
     fi
@@ -282,8 +285,8 @@ test_installations() {
 
 cleanup() {
     log "Cleaning up..."
-    apt-get autoremove -qq -y &>/dev/null || true
-    apt-get autoclean -qq &>/dev/null || true
+    apt-get -o DPkg::Lock::Timeout=180 autoremove -qq -y &>/dev/null || true
+    apt-get -o DPkg::Lock::Timeout=180 autoclean -qq &>/dev/null || true
     rm -rf /tmp/flui-* /tmp/node_exporter-* /var/tmp/flui-* || true
     log "✅ Cleanup completed"
 }

@@ -581,7 +581,7 @@ if [ "${FLUI_SHARED_STORAGE_ENABLED:-false}" = "true" ]; then
     NFS_EXPORT_OPTS="rw,async,no_subtree_check,no_root_squash"
 
     log "Installing nfs-kernel-server..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -yq nfs-kernel-server \
+    DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=180 install -yq nfs-kernel-server \
         2>&1 | tail -5 | tee -a "$LOG_FILE" \
         || error "Failed to install nfs-kernel-server"
 

@@ -239,7 +239,7 @@ if [ "${FLUI_SHARED_STORAGE_ENABLED:-false}" = "true" ]; then
     fi
 
     log "Installing nfs-common + cachefilesd..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -yq \
+    DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=180 install -yq \
         nfs-common cachefilesd 2>&1 | tail -5 | tee -a "$LOG_FILE" \
         || error "Failed to install nfs-common / cachefilesd"
 
