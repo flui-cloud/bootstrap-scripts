@@ -79,14 +79,71 @@ detect_system() {
     log "✅ System validation passed"
 }
 
+disable_unattended_upgrades() {
+    log "Stopping unattended-upgrades for the duration of bootstrap..."
+
+    # unattended-upgrades.service (unattended-upgrade-shutdown --wait-for-signal)
+    # is the one that matters: KillMode=process means `stop` sends it a real
+    # SIGTERM, which its own handler treats as "finish the current dpkg step,
+    # then exit" — the same clean path Ubuntu uses at shutdown, never a raw
+    # kill mid-transaction. It restarts on the next real boot on its own
+    # (WantedBy=multi-user.target), so nothing here needs to restore it.
+    #
+    # apt-daily.service/apt-daily-upgrade.service are also KillMode=process,
+    # but that only signals the `apt.systemd.daily` wrapper shell — a dpkg
+    # child it already spawned keeps running regardless. Stopping them is
+    # still worth doing (it cancels a run that hasn't started a child yet),
+    # but the actual lock-holder is unattended-upgrades.service; don't treat
+    # these three as equivalent.
+    #
+    # The timers are the part that must NOT just be `stop`ped: RandomizedDelaySec
+    # means unattended-upgrades can start at any point in the first hour after
+    # boot, so a plain `stop` only cancels a queued run for THIS timer period —
+    # a plain `stop` also doesn't survive being re-triggered and, unlike the
+    # service, has no self-restart to rely on, so silently leaves automatic
+    # security updates off for the node's entire uptime unless something
+    # explicitly restores it. `--runtime` mask makes it unstartable for the
+    # rest of THIS boot only — it reverts on its own at the next real reboot,
+    # same "no restore needed" property as the service above, but for the
+    # right reason.
+    systemctl mask --runtime apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+    systemctl stop apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true
+    systemctl stop unattended-upgrades.service apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+
+    # Stopping the service signals its process but doesn't guarantee the
+    # dpkg lock is free the instant this call returns — apt itself waits on
+    # both lock-frontend (held for the whole run) and the plain dpkg lock
+    # (held per-package), so check both. Worth waiting for patiently: a wait
+    # here costs nothing but time, where giving up early just reproduces the
+    # apt-get failure this exists to prevent, further downstream where it's
+    # harder to diagnose.
+    if ! command -v fuser &>/dev/null; then
+        warn "fuser not installed — cannot confirm the dpkg lock is free, proceeding immediately"
+        return
+    fi
+    local waited=0
+    local max_wait=600
+    while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock &>/dev/null; do
+        if [ "$waited" -ge "$max_wait" ]; then
+            warn "dpkg lock still held after ${max_wait}s — proceeding anyway"
+            break
+        fi
+        if [ $((waited % 30)) -eq 0 ]; then
+            log "Still waiting for dpkg lock (${waited}s elapsed, held by: $(fuser -v /var/lib/dpkg/lock-frontend 2>&1 | tail -n +2))"
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+}
+
 update_system() {
     log "Updating system packages..."
 
     export DEBIAN_FRONTEND=noninteractive
+    disable_unattended_upgrades
 
-    # unattended-upgrades can be mid-run this early after boot and hold the
-    # dpkg lock for minutes; let apt itself wait for it instead of failing
-    # the whole bootstrap on the first collision.
+    # DPkg::Lock::Timeout stays as a second line of defence in case something
+    # else briefly holds the lock (e.g. cloud-init's own package stage).
     if ! apt-get -o DPkg::Lock::Timeout=180 update -qq; then
         error "Failed to update package lists"
     fi
