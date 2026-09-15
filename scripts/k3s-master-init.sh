@@ -160,6 +160,18 @@ if ! curl -fsSL "$MODULES_BASE_URL/monitoring.sh" -o /tmp/flui-modules/monitorin
     warn "Failed to download monitoring.sh - monitoring may be disabled"
 fi
 
+# Fetched even when no overlay is configured: the module decides for itself
+# whether there is anything to do, and a node that silently lacks the file
+# would look identical to one where the overlay was deliberately off.
+if ! curl -fsSL "$MODULES_BASE_URL/wireguard.sh" -o /tmp/flui-modules/wireguard.sh; then
+    if [ "${FLUI_WG_MODE:-overlay}" = "mesh" ]; then
+        # This node's private network is the tunnel. Without the module there
+        # is no network to install onto.
+        error "Failed to download wireguard.sh, which this node's private network depends on"
+    fi
+    warn "Failed to download wireguard.sh - this node will stay on the public path"
+fi
+
 chmod +x /tmp/flui-modules/*.sh 2>/dev/null || true
 
 log "Downloading diagnostic scripts..."
@@ -426,7 +438,16 @@ PRIMARY_IP=$(hostname -I | awk '{print $1}')
 log "Primary IP address: $PRIMARY_IP"
 
 if [ -z "${PRIVATE_IP:-}" ]; then
-  PRIVATE_IP=$(ip -4 -o addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1 \
+  # Never the management overlay, and never an interface K3s itself will
+  # create. The overlay reaches the control cluster and nothing else, so
+  # binding K3s to it would give this node a --node-ip its siblings cannot
+  # route to: a cluster that forms and then cannot schedule across nodes. A
+  # Flui-built private network is not detected here either — it arrives as
+  # PRIVATE_IP from the API, which is explicit and therefore safe.
+  PRIVATE_IP=$(ip -4 -o addr show 2>/dev/null \
+    | awk -v skip="${FLUI_WG_IFACE:-flui0}" \
+        '$2 != skip && $2 !~ /^(lo|cni|flannel|docker|kube|veth)/ {print $4}' \
+    | cut -d/ -f1 \
     | grep -E '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' | head -1 || true)
 fi
 
@@ -447,7 +468,12 @@ log "Installing K3s server..."
 log "K3s version: $K3S_VERSION"
 log "Node name: $INSTANCE_NAME"
 log "Flannel backend: vxlan"
-log "TLS SAN: $PRIMARY_IP${PRIVATE_IP:+,$PRIVATE_IP}"
+# The overlay address is a SAN from the first boot, even though the tunnel is
+# not up yet: adding one later means deleting serving-kube-apiserver.* and
+# restarting k3s on a live master. The address can be allocated before the node
+# exists — only its key has to come from the node — so there is no reason to pay
+# that cost on every cluster.
+log "TLS SAN: $PRIMARY_IP${PRIVATE_IP:+,$PRIVATE_IP}${FLUI_WG_ADDRESS:+,$FLUI_WG_ADDRESS}"
 
 K3S_INSTALL_LOG="/var/log/k3s-install.log"
 log "Downloading K3s installation script..."
@@ -462,6 +488,7 @@ curl -sfL https://get.k3s.io | \
   --flannel-backend=vxlan \
   --tls-san="$PRIMARY_IP" \
   ${PRIVATE_IP:+--tls-san="$PRIVATE_IP"} \
+  ${FLUI_WG_ADDRESS:+--tls-san="$FLUI_WG_ADDRESS"} \
   $K3S_NODE_IP_FLAGS \
   $K3S_RESOLV_CONF_FLAG \
   --write-kubeconfig-mode=644 2>&1 | tee "$K3S_INSTALL_LOG" || {

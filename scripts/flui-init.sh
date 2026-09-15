@@ -207,6 +207,19 @@ else
     warn "Continuing without monitoring - CA installation and security are still enforced"
 fi
 
+# Loaded separately from the monitoring set on purpose: the overlay is how the
+# control cluster reaches this node when the two share no private network, so it
+# must not disappear because an unrelated module is missing.
+if [ -f "${MODULES_DIR}/wireguard.sh" ]; then
+    if source "${MODULES_DIR}/wireguard.sh"; then
+        log "✅ Management overlay module loaded from ${MODULES_DIR}"
+    else
+        warn "Failed to load the management overlay module from ${MODULES_DIR}"
+    fi
+else
+    warn "Management overlay module not found in ${MODULES_DIR}"
+fi
+
 configure_logging() {
     log "Configuring system logging..."
 
@@ -394,6 +407,13 @@ main() {
 
     update_system
 
+    # Before monitoring, deliberately: when the two clusters share no private
+    # network, the overlay is the address the telemetry will be told to push to.
+    # Raising it first means the endpoint is reachable by the time Vector is
+    # pointed at it, instead of failing its first sends.
+    if type setup_flui_overlay &>/dev/null; then
+        setup_flui_overlay
+    fi
 
     # Use modular monitoring installation (Node Exporter + Vector)
     # Note: Monitoring modules are optional and loaded conditionally above
