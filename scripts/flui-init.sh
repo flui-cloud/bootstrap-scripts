@@ -142,13 +142,39 @@ update_system() {
     export DEBIAN_FRONTEND=noninteractive
     disable_unattended_upgrades
 
-    # DPkg::Lock::Timeout stays as a second line of defence in case something
-    # else briefly holds the lock (e.g. cloud-init's own package stage).
-    if ! apt-get -o DPkg::Lock::Timeout=180 update -qq; then
+    # Retry rather than pre-check: waiting for the lock only proves it was free
+    # at that instant, and cloud-init's own package stage can take it a moment
+    # later. disable_unattended_upgrades does not cover that stage, and
+    # DPkg::Lock::Timeout does not cover the dpkg *frontend* lock.
+    apt_with_retry() {
+        local what="$1"; shift
+        local attempt=1
+        local out
+        while [ "$attempt" -le 30 ]; do
+            if out=$(apt-get -o DPkg::Lock::Timeout=180 "$@" 2>&1); then
+                return 0
+            fi
+            if echo "$out" | grep -qiE "could not get lock|unable to acquire|dpkg frontend"; then
+                if [ $((attempt % 6)) -eq 0 ]; then
+                    log "Waiting for another apt to finish before ${what} (attempt ${attempt})"
+                fi
+                attempt=$((attempt + 1))
+                sleep 5
+                continue
+            fi
+            echo "$out" | tail -5
+            return 1
+        done
+        log "Gave up waiting for the dpkg lock after ${attempt} attempts"
+        echo "$out" | tail -5
+        return 1
+    }
+
+    if ! apt_with_retry "updating package lists" update -qq; then
         error "Failed to update package lists"
     fi
 
-    if ! apt-get -o DPkg::Lock::Timeout=180 install -qq -y curl wget ca-certificates gnupg software-properties-common apt-transport-https tar gzip systemd gettext-base; then
+    if ! apt_with_retry "installing essential packages" install -qq -y curl wget ca-certificates gnupg software-properties-common apt-transport-https tar gzip systemd gettext-base; then
         error "Failed to install essential packages"
     fi
 
@@ -367,6 +393,8 @@ main() {
     install_ca_public_key
 
     update_system
+
+
     # Use modular monitoring installation (Node Exporter + Vector)
     # Note: Monitoring modules are optional and loaded conditionally above
     if type install_monitoring &>/dev/null; then
