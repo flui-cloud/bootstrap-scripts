@@ -320,15 +320,18 @@ done
 log "Master is reachable at $MASTER_IP:6443"
 
 if [ -z "${PRIVATE_IP:-}" ]; then
-  # Never the management overlay, and never an interface K3s itself will
-  # create. The overlay reaches the control cluster and nothing else, so
-  # binding K3s to it would give this node a --node-ip its siblings cannot
-  # route to: a cluster that forms and then cannot schedule across nodes. A
-  # Flui-built private network is not detected here either — it arrives as
-  # PRIVATE_IP from the API, which is explicit and therefore safe.
+  # Never the management overlay, never an interface K3s itself will create,
+  # and never a container bridge. The overlay reaches the control cluster and
+  # nothing else, so binding K3s to it would give this node a --node-ip its
+  # siblings cannot route to: a cluster that forms and then cannot schedule
+  # across nodes. A container bridge is worse than useless — every host that
+  # runs containers has one on the same default range, so two unrelated hosts
+  # would both report it and look like they shared a network. A Flui-built
+  # private network is not detected here either — it arrives as PRIVATE_IP
+  # from the API, which is explicit and therefore safe.
   PRIVATE_IP=$(ip -4 -o addr show 2>/dev/null \
     | awk -v skip="${FLUI_WG_IFACE:-flui0}" \
-        '$2 != skip && $2 !~ /^(lo|cni|flannel|docker|kube|veth)/ {print $4}' \
+        '$2 != skip && $2 !~ /^(lo|cni|flannel|docker|podman|kube|veth|br-)/ {print $4}' \
     | cut -d/ -f1 \
     | grep -E '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' | head -1 || true)
 fi
