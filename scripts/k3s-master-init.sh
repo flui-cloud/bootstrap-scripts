@@ -449,7 +449,7 @@ if [ -z "${PRIVATE_IP:-}" ]; then
   # from the API, which is explicit and therefore safe.
   PRIVATE_IP=$(ip -4 -o addr show 2>/dev/null \
     | awk -v skip="${FLUI_WG_IFACE:-flui0}" \
-        '$2 != skip && $2 !~ /^(lo|cni|flannel|docker|podman|kube|veth|br-)/ {print $4}' \
+        '$2 != skip && $2 !~ /^(lo|cni|flannel|cali|tunl|docker|podman|kube|veth|br-|virbr|vmbr|wg|tailscale|zt|tun|tap)/ {print $4}' \
     | cut -d/ -f1 \
     | grep -E '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' | head -1 || true)
 fi
