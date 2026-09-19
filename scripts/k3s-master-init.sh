@@ -299,8 +299,114 @@ else
     error "kubectl installation failed - command not found"
 fi
 
-# Node-local path for the flui-local StorageClass (dedicated workloads).
-mkdir -p /var/lib/flui/local
+# ============================================================
+# Node-local storage for the flui-local StorageClass
+# ============================================================
+# A filesystem of its own rather than a folder on the root disk, for two
+# reasons measured on a live cluster. local-path does not enforce a volume's
+# declared size — a claim of 1Mi accepted 50MiB without complaint — and these
+# volumes sit on `/`, so an application that keeps writing takes down k3s,
+# etcd and the logs with it rather than only itself.
+#
+# XFS with project quotas: mkfs.xfs, xfs_quota and xfs_growfs are already on
+# the image while the ext4 quota tools are not, a project id can be pinned to
+# a directory tree (which is how a tenancy gets a ceiling), and xfs_growfs
+# means the filesystem follows the Volume when that Volume grows.
+#
+# Three shapes, most preferred first:
+#   FLUI_LOCAL_STORAGE_DEVICE  a block device of its own (a provider Volume)
+#   FLUI_LOCAL_STORAGE_SIZE_GB a file on the root disk, loop-mounted — nothing
+#                              extra to buy, and still a real ceiling
+#   neither                    the previous behaviour: a plain directory, no quota
+prepare_flui_local_storage() {
+    # Overridable only so this function can be exercised against a scratch
+    # directory on a real machine; nothing in the product sets them.
+    FLUI_LOCAL_PATH="${FLUI_LOCAL_PATH:-/var/lib/flui/local}"
+    FLUI_LOCAL_IMG="${FLUI_LOCAL_IMG:-/var/lib/flui/local.img}"
+    FLUI_LOCAL_LABEL="flui-local"
+
+    mkdir -p "$FLUI_LOCAL_PATH"
+
+    if mountpoint -q "$FLUI_LOCAL_PATH" 2>/dev/null; then
+        log "flui-local: $FLUI_LOCAL_PATH is already its own filesystem — leaving it alone"
+        return 0
+    fi
+
+    local device="${FLUI_LOCAL_STORAGE_DEVICE:-}"
+    local size_gb="${FLUI_LOCAL_STORAGE_SIZE_GB:-0}"
+
+    if [ -z "$device" ] && echo "$size_gb" | grep -Eq '^[0-9]+$' && [ "$size_gb" -gt 0 ]; then
+        if [ ! -f "$FLUI_LOCAL_IMG" ]; then
+            log "flui-local: creating a ${size_gb}G backing file at $FLUI_LOCAL_IMG"
+            if ! truncate -s "${size_gb}G" "$FLUI_LOCAL_IMG"; then
+                warn "flui-local: could not create $FLUI_LOCAL_IMG — continuing without a quota"
+                return 0
+            fi
+        fi
+        device="$FLUI_LOCAL_IMG"
+    fi
+
+    if [ -z "$device" ]; then
+        log "flui-local: no dedicated storage configured — $FLUI_LOCAL_PATH stays on the root disk, without a quota"
+        return 0
+    fi
+
+    # Mounting over a directory that already holds volumes would hide somebody's
+    # data rather than move it, and the pods using it would silently start from
+    # an empty disk. Refusing is the only safe answer; migrating is a separate,
+    # deliberate operation.
+    if [ -n "$(ls -A "$FLUI_LOCAL_PATH" 2>/dev/null)" ]; then
+        warn "flui-local: $FLUI_LOCAL_PATH already holds data — refusing to mount over it. Move the volumes first."
+        return 0
+    fi
+
+    if ! command -v mkfs.xfs >/dev/null 2>&1; then
+        log "flui-local: installing xfsprogs"
+        apt-get install -y -qq xfsprogs >>"$LOG_FILE" 2>&1 || {
+            warn "flui-local: xfsprogs unavailable — continuing without a quota"
+            return 0
+        }
+    fi
+
+    local fstype
+    fstype="$(blkid -o value -s TYPE "$device" 2>/dev/null || true)"
+    if [ -z "$fstype" ]; then
+        log "flui-local: formatting $device as XFS"
+        if ! mkfs.xfs -q -L "$FLUI_LOCAL_LABEL" "$device" >>"$LOG_FILE" 2>&1; then
+            warn "flui-local: mkfs.xfs failed on $device — continuing without a quota"
+            return 0
+        fi
+    elif [ "$fstype" != "xfs" ]; then
+        warn "flui-local: $device already holds a $fstype filesystem — leaving it untouched, no quota"
+        return 0
+    fi
+
+    if ! mount -o prjquota "$device" "$FLUI_LOCAL_PATH" >>"$LOG_FILE" 2>&1; then
+        warn "flui-local: could not mount $device at $FLUI_LOCAL_PATH — continuing without a quota"
+        return 0
+    fi
+
+    # Survive a reboot. The loop-backed shape needs the `loop` option; a real
+    # device is written by UUID so a changing device name cannot strand it.
+    local entry
+    if [ "$device" = "$FLUI_LOCAL_IMG" ]; then
+        entry="$FLUI_LOCAL_IMG $FLUI_LOCAL_PATH xfs loop,prjquota,nofail 0 0"
+    else
+        local uuid
+        uuid="$(blkid -o value -s UUID "$device" 2>/dev/null || true)"
+        if [ -n "$uuid" ]; then
+            entry="UUID=$uuid $FLUI_LOCAL_PATH xfs prjquota,nofail 0 0"
+        else
+            entry="$device $FLUI_LOCAL_PATH xfs prjquota,nofail 0 0"
+        fi
+    fi
+    sed -i "\| $FLUI_LOCAL_PATH |d" /etc/fstab
+    echo "$entry" >> /etc/fstab
+
+    log "✅ flui-local: $FLUI_LOCAL_PATH is now XFS with project quotas ($device)"
+}
+
+prepare_flui_local_storage
 
 # ============================================================
 # STEP 2.5: Prepare Flui shared storage Volume (pre-k3s)

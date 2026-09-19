@@ -350,6 +350,57 @@ data:
               summary: "{{ $labels.service }} is slow"
               description: "p95 latency above 2s for 10 minutes."
 
+      - name: flui_volume
+        interval: 30s
+        rules:
+          # Only where the measurement means something.
+          #
+          # The kubelet reports a volume's usage by measuring the filesystem it
+          # sits on, so on Flui's local-path classes every volume on a node
+          # reports the node's own disk: three volumes of 1Gi, 5Gi and 1Gi were
+          # measured all reporting 192.7GiB capacity with 29.6GiB used, which is
+          # the machine. A threshold on that number would fire for every volume
+          # at once or for none, and would say nothing about anybody's data — so
+          # the join below keeps these rules to classes whose volumes are real
+          # disks. On a cluster without such a class they simply never fire,
+          # which is the honest behaviour; `FluiNodeDiskNearFull` and
+          # `FluiNodeDiskFillingFast` are what watch the space there.
+          - alert: FluiVolumeNearFull
+            expr: |
+              (
+                kubelet_volume_stats_used_bytes
+                / kubelet_volume_stats_capacity_bytes * 100
+              )
+              * on (namespace, persistentvolumeclaim) group_left()
+                kube_persistentvolumeclaim_info{storageclass!~"local-path|flui-local"}
+              > 80
+            for: 10m
+            labels:
+              severity: warning
+              flui_kind: volume
+            annotations:
+              summary: "Volume {{ $labels.persistentvolumeclaim }} is over 80% full"
+              description: "In {{ $labels.namespace }}. It still has room, but not for long at this rate."
+              action: "flui app volume resize <application> --volume {{ $labels.persistentvolumeclaim }} --size <GiB>"
+
+          - alert: FluiVolumeCriticallyFull
+            expr: |
+              (
+                kubelet_volume_stats_used_bytes
+                / kubelet_volume_stats_capacity_bytes * 100
+              )
+              * on (namespace, persistentvolumeclaim) group_left()
+                kube_persistentvolumeclaim_info{storageclass!~"local-path|flui-local"}
+              > 90
+            for: 5m
+            labels:
+              severity: critical
+              flui_kind: volume
+            annotations:
+              summary: "Volume {{ $labels.persistentvolumeclaim }} is over 90% full"
+              description: "In {{ $labels.namespace }}. An application that cannot write usually stops rather than slows down."
+              action: "flui app volume resize <application> --volume {{ $labels.persistentvolumeclaim }} --size <GiB>"
+
       - name: flui_node
         interval: 30s
         rules:
@@ -365,6 +416,25 @@ data:
             annotations:
               summary: "Disk above 85% on {{ $labels.instance }}"
               description: "A full root filesystem takes the node down; free space or resize."
+
+          # A threshold answers "is it full", which is the wrong question when
+          # nothing caps what a workload may write: a container with no
+          # ephemeral-storage limit filled 50MiB in 50ms in a live test, so the
+          # 85%/15m rule above would still be waiting while the node died. This
+          # one watches the slope instead and fires while there is still room to
+          # act, which is the only thing that makes the email worth sending.
+          - alert: FluiNodeDiskFillingFast
+            expr: |
+              predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[15m], 30 * 60) < 0
+              and
+              node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.5
+            for: 2m
+            labels:
+              severity: critical
+              flui_kind: node
+            annotations:
+              summary: "Disk filling fast on {{ $labels.instance }}"
+              description: "At this rate the root filesystem runs out within 30 minutes; find what is writing before the node stops."
 
           - alert: FluiNodeDown
             expr: up{job="node-exporter"} == 0
