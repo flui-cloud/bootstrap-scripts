@@ -1,0 +1,31 @@
+# The control-plane manifests this release installs, in the order they are applied.
+#
+# One list, two readers. The installer downloads and renders exactly these, and
+# `flui env refresh-manifests` will only ADD a file that appears here — without
+# that, a refresh would put back anything still sitting in this directory, and
+# `05-prometheus.yaml` is sitting in this directory: it is legacy, superseded by
+# VictoriaMetrics, and declares no placeholder, so every other safety rule waves
+# it through. The index is what says "not part of this release" out loud.
+#
+# `11-zitadel` is installed only when AUTH_MODE=oidc. It is listed because the
+# list describes the release, not one installation's choices; it carries a
+# Secret and is therefore never eligible for a refresh anyway.
+#
+# Lines beginning with # are comments. Order matters to the installer.
+00-secrets
+01-namespace
+02-postgres
+03-redis
+04-vmagent-config
+04a-kube-state-metrics
+04b-vmagent
+04c-vmalert
+04d-alertmanager
+05-vmsingle
+06-loki
+07-grafana-datasources
+08-grafana
+09-flui-api
+12-flui-web-config
+10-flui-web
+11-zitadel

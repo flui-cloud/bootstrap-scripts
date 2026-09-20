@@ -935,6 +935,17 @@ log "=========================================="
 log "Configuring Traefik ingress (hostPort 80/443)"
 log "=========================================="
 
+# Substitute only the names a file declares as `${NAME}`.
+#
+# Bare envsubst also eats `$NAME` without braces: it installed every `{{ $labels.x }}`
+# alert annotation as `{{ .x }}`, which parses, loads, and names nothing when an alert
+# fires. Deriving the list from the file keeps it from going stale.
+render_manifest() {
+    local src="$1" dst="$2" vars
+    vars=$(grep -ohE '\$\{[A-Za-z_][A-Za-z0-9_]*\}' "$src" | sort -u | tr '\n' ' ')
+    envsubst "$vars" < "$src" > "$dst"
+}
+
 TRAEFIK_MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
 mkdir -p "$TRAEFIK_MANIFEST_DIR"
 if curl -fsSL "$MANIFESTS_BASE_URL/common/00a-traefik-config.yaml" -o "$TRAEFIK_MANIFEST_DIR/00a-traefik-config.yaml"; then
@@ -1216,11 +1227,20 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     export SSH_KEY_ENCRYPTION_KEY
 
     # 00a-traefik-config and 01a-flui-local-storage now applied in STEP 10b/10c.
-    MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 04d-alertmanager 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web"
+    #
+    # The list lives in manifests/control/INDEX because `flui env
+    # refresh-manifests` reads it too, and a list kept twice disagrees with itself.
+    if curl -fsSL "$MANIFESTS_BASE_URL/control/INDEX" -o /tmp/manifests.index; then
+        MANIFESTS=$(grep -vE '^[[:space:]]*(#|$)' /tmp/manifests.index | tr '\n' ' ')
+        rm -f /tmp/manifests.index
+    else
+        warn "Could not fetch the manifest index; falling back to the built-in list"
+        MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 04d-alertmanager 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-zitadel"
+    fi
     if [ "$AUTH_MODE" = "oidc" ]; then
-        MANIFESTS="$MANIFESTS 11-zitadel"
         log "AUTH_MODE=oidc: Zitadel will be deployed"
     else
+        MANIFESTS=$(echo "$MANIFESTS" | tr ' ' '\n' | grep -v '^11-zitadel$' | tr '\n' ' ')
         log "AUTH_MODE=local: Zitadel will NOT be deployed (using built-in JWT auth)"
     fi
 
@@ -1251,7 +1271,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             # Public/reachable IP for the API's cluster seed (BYOS: differs from
             # the internal node IP; empty for provisioned, where MASTER_IP is public).
             export FLUI_MASTER_PUBLIC_IP="${FLUI_MASTER_PUBLIC_IP:-}"
-            envsubst < "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
+            render_manifest "/tmp/${manifest}.yaml" "$MANIFEST_DIR/${manifest}.yaml"
         else
             log "⚠️  envsubst not found, using sed for variable substitution..."
             sed -e "s/\${POSTGRES_PASSWORD}/$POSTGRES_PASSWORD/g" \
@@ -1317,7 +1337,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 export ACME_SERVER_URL="https://acme-v02.api.letsencrypt.org/directory"
             fi
             export ADMIN_EMAIL FLUI_BASE_DOMAIN
-            envsubst < /tmp/13-system-tls-cert.yaml > /tmp/13-system-tls-cert.rendered.yaml
+            render_manifest /tmp/13-system-tls-cert.yaml /tmp/13-system-tls-cert.rendered.yaml
             (
                 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for cert-manager CRDs..."
                 kubectl wait --for=condition=Established crd/certificates.cert-manager.io --timeout=600s
@@ -1567,7 +1587,7 @@ else
         export CLUSTER_ID CLUSTER_NAME REMOTE_WRITE_URL
         if curl -fsSL "$MANIFESTS_BASE_URL/workload/vmagent.yaml" -o /tmp/vmagent.yaml; then
             if command -v envsubst &> /dev/null; then
-                envsubst < /tmp/vmagent.yaml > "$MANIFEST_DIR/vmagent.yaml"
+                render_manifest /tmp/vmagent.yaml "$MANIFEST_DIR/vmagent.yaml"
             else
                 sed -e "s|\${REMOTE_WRITE_URL}|$REMOTE_WRITE_URL|g" \
                     -e "s/\${CLUSTER_ID}/$CLUSTER_ID/g" \
