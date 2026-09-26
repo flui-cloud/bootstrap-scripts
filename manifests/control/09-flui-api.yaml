@@ -74,6 +74,7 @@ spec:
         app.kubernetes.io/managed-by: flui-cloud
         app.kubernetes.io/instance: flui-api
     spec:
+      priorityClassName: flui-platform
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36

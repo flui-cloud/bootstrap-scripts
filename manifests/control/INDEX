@@ -14,6 +14,7 @@
 # Lines beginning with # are comments. Order matters to the installer.
 00-secrets
 01-namespace
+01b-platform-priority
 02-postgres
 03-redis
 04-vmagent-config

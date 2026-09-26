@@ -1,0 +1,16 @@
+# Ranks the pods Flui itself cannot run without above applications when a node
+# runs short of memory, so the node evicts an application first and the API,
+# its database and the sign-in stay up. It never evicts anything to make room:
+# a platform pod waits for space like any other.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: flui-platform
+  labels:
+    app.kubernetes.io/managed-by: flui-cloud
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+value: 1000000
+preemptionPolicy: Never
+globalDefault: false
+description: "Flui platform components: evicted after applications under node pressure."

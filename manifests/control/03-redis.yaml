@@ -49,6 +49,7 @@ spec:
         app.kubernetes.io/managed-by: flui-cloud
         app.kubernetes.io/instance: redis
     spec:
+      priorityClassName: flui-platform
       containers:
         - name: redis
           image: redis:7-alpine

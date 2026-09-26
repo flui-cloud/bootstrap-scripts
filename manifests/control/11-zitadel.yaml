@@ -119,6 +119,7 @@ spec:
         app.kubernetes.io/managed-by: flui-cloud
         app.kubernetes.io/instance: zitadel
     spec:
+      priorityClassName: flui-platform
       enableServiceLinks: false
       containers:
         - name: zitadel

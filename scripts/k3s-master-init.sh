@@ -1235,7 +1235,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         rm -f /tmp/manifests.index
     else
         warn "Could not fetch the manifest index; falling back to the built-in list"
-        MANIFESTS="00-secrets 01-namespace 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 04d-alertmanager 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-zitadel"
+        MANIFESTS="00-secrets 01-namespace 01b-platform-priority 02-postgres 03-redis 04-vmagent-config 04a-kube-state-metrics 04b-vmagent 04c-vmalert 04d-alertmanager 05-vmsingle 06-loki 07-grafana-datasources 08-grafana 09-flui-api 12-flui-web-config 10-flui-web 11-zitadel"
     fi
     if [ "$AUTH_MODE" = "oidc" ]; then
         log "AUTH_MODE=oidc: Zitadel will be deployed"

@@ -436,6 +436,32 @@ data:
               summary: "Disk filling fast on {{ $labels.instance }}"
               description: "At this rate the root filesystem runs out within 30 minutes; find what is writing before the node stops."
 
+          # Replicas and machines take minutes to arrive; this is the window in
+          # which pods on a full node start to be evicted, platform ones included.
+          - alert: FluiNodeMemoryPressure
+            expr: |
+              node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+            for: 5m
+            labels:
+              severity: warning
+              flui_kind: node
+            annotations:
+              summary: "Node {{ $labels.instance }} has less than 10% memory free"
+              description: "Applications on it may be stopped to free memory. Adding a node, or lowering what the busiest applications reserve, gives it room."
+              action: "flui scaling why"
+
+          - alert: FluiNodeCpuSaturated
+            expr: |
+              1 - avg by (cluster_id, instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) > 0.90
+            for: 15m
+            labels:
+              severity: warning
+              flui_kind: node
+            annotations:
+              summary: "Node {{ $labels.instance }} has been above 90% CPU for 15 minutes"
+              description: "Every application on it slows down. More replicas only help if another node has room for them."
+              action: "flui scaling why"
+
           - alert: FluiNodeDown
             expr: up{job="node-exporter"} == 0
             for: 5m

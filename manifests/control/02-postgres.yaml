@@ -73,6 +73,7 @@ spec:
         app.kubernetes.io/managed-by: flui-cloud
         app.kubernetes.io/instance: postgres
     spec:
+      priorityClassName: flui-platform
       containers:
         - name: postgres
           image: postgres:15-alpine
