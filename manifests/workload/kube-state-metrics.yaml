@@ -170,7 +170,7 @@ spec:
         - name: kube-state-metrics
           image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.10.1
           args:
-            - '--metric-labels-allowlist=pods=[app,app.kubernetes.io/name,app.kubernetes.io/managed-by,app.kubernetes.io/instance,flui-app-id],deployments=[app,app.kubernetes.io/name,app.kubernetes.io/managed-by,app.kubernetes.io/instance,flui-app-id]'
+            - '--metric-labels-allowlist=pods=[app,app.kubernetes.io/name,app.kubernetes.io/managed-by,app.kubernetes.io/instance,flui-app-id],deployments=[app,app.kubernetes.io/name,app.kubernetes.io/managed-by,app.kubernetes.io/instance,flui-app-id],cronjobs=[app.kubernetes.io/name,flui-app-id,flui.cloud/scheduled-job]'
           ports:
             - name: http-metrics
               containerPort: 8080

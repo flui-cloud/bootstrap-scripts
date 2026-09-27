@@ -289,6 +289,31 @@ data:
               summary: "Application {{ $labels.label_app_kubernetes_io_name }} is crash looping"
               description: "More than 3 container restarts in the last hour."
 
+          # A schedule whose runs keep failing: the last success (or its creation,
+          # if it never succeeded) is more than two and a half periods behind its
+          # last run. Suspended schedules are left out.
+          - alert: FluiScheduleFailing
+            expr: |
+              (
+                (
+                  kube_cronjob_status_last_schedule_time
+                  - on(namespace, cronjob) group_left()
+                    (kube_cronjob_status_last_successful_time or on(namespace, cronjob) kube_cronjob_created)
+                )
+                > on(namespace, cronjob) group_left()
+                  (2.5 * (kube_cronjob_next_schedule_time - kube_cronjob_status_last_schedule_time))
+                and on(namespace, cronjob) (kube_cronjob_spec_suspend == 0)
+              )
+              * on(namespace, cronjob) group_left(label_app_kubernetes_io_name, label_flui_cloud_scheduled_job)
+                kube_cronjob_labels{label_flui_app_id!=""}
+            for: 5m
+            labels:
+              severity: warning
+              flui_kind: application
+            annotations:
+              summary: "Schedule {{ $labels.label_flui_cloud_scheduled_job }} of {{ $labels.label_app_kubernetes_io_name }} keeps failing"
+              description: "Its runs have not succeeded for more than two schedule periods."
+
           - alert: FluiAppNotFullyReady
             expr: flui:app_status_ready_ratio < 1
             for: 15m
