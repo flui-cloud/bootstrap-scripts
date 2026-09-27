@@ -539,6 +539,9 @@ spec:
             # would page for everything already firing.
             - '-remoteRead.url=http://vmsingle.flui-control.svc.cluster.local:8428'
             - '-evaluationInterval=30s'
+            # Rules arrive as a mounted ConfigMap; without this a rule added by a
+            # manifest refresh is not loaded until the pod restarts.
+            - '-configCheckInterval=60s'
             - '-httpListenAddr=:8880'
           ports:
             - name: http
