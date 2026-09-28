@@ -716,31 +716,48 @@ if [ "${FLUI_SHARED_STORAGE_ENABLED:-false}" = "true" ]; then
     SHARED_STORAGE_PATH="/var/lib/flui/storage"
     NFS_EXPORT_OPTS="rw,async,no_subtree_check,no_root_squash"
 
+    # The export runs with no_root_squash, so it only ever goes to the networks
+    # Flui names: the cluster's private subnet(s) and its internal ranges. No
+    # list means no export, never a world-readable one.
+    NFS_CLIENTS=""
+    while IFS= read -r NFS_NET; do
+        NFS_NET="${NFS_NET//[[:space:]]/}"
+        case "$NFS_NET" in
+            '*'|0.0.0.0/0|::/0|'') continue ;;
+        esac
+        NFS_CLIENTS="${NFS_CLIENTS:+$NFS_CLIENTS }${NFS_NET}(${NFS_EXPORT_OPTS})"
+    done < <(printf '%s\n' "${FLUI_NFS_ALLOWED_NETWORKS:-}" | tr ',' '\n')
+
+    # Installed even without a list: Flui rewrites the export when it learns
+    # the cluster's networks later (a BYOS node joining), and that rewrite
+    # should not have to install packages.
     log "Installing nfs-kernel-server..."
     DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=180 install -yq nfs-kernel-server \
         2>&1 | tail -5 | tee -a "$LOG_FILE" \
         || error "Failed to install nfs-kernel-server"
 
-    # Export only to private network (or local subnets) for security.
-    # Default: trust all, can be tightened by Flui via env var.
-    NFS_ALLOWED_NETWORKS="${FLUI_NFS_ALLOWED_NETWORKS:-*}"
-
     # Idempotent: replace existing flui export line if present
     sed -i '\|^/var/lib/flui/storage |d' /etc/exports
-    echo "/var/lib/flui/storage ${NFS_ALLOWED_NETWORKS}(${NFS_EXPORT_OPTS})" >> /etc/exports
-    log "NFS export: /var/lib/flui/storage ${NFS_ALLOWED_NETWORKS}(${NFS_EXPORT_OPTS})"
 
-    systemctl enable --now nfs-server 2>&1 | tee -a "$LOG_FILE" || true
-    exportfs -rav 2>&1 | tee -a "$LOG_FILE" \
-        || error "exportfs failed"
+    if [ -z "$NFS_CLIENTS" ]; then
+        log "⚠️  No private network given for shared storage (FLUI_NFS_ALLOWED_NETWORKS empty) — the volume stays local to this node until Flui knows the cluster's private network"
+        exportfs -ra 2>&1 | tee -a "$LOG_FILE" || true
+    else
+        echo "/var/lib/flui/storage ${NFS_CLIENTS}" >> /etc/exports
+        log "NFS export: /var/lib/flui/storage ${NFS_CLIENTS}"
 
-    # Verify NFS server is listening
-    if ! systemctl is-active --quiet nfs-server; then
-        log "❌ nfs-server is not active"
-        systemctl status nfs-server --no-pager | tee -a "$LOG_FILE"
-        error "NFS server failed to start"
+        systemctl enable --now nfs-server 2>&1 | tee -a "$LOG_FILE" || true
+        exportfs -rav 2>&1 | tee -a "$LOG_FILE" \
+            || error "exportfs failed"
+
+        # Verify NFS server is listening
+        if ! systemctl is-active --quiet nfs-server; then
+            log "❌ nfs-server is not active"
+            systemctl status nfs-server --no-pager | tee -a "$LOG_FILE"
+            error "NFS server failed to start"
+        fi
+        log "✅ NFS server active and exporting $SHARED_STORAGE_PATH"
     fi
-    log "✅ NFS server active and exporting $SHARED_STORAGE_PATH"
 
     # Patch local-path-provisioner ConfigMap to point at the shared mount.
     # The default config uses /var/lib/rancher/k3s/storage on each node; we

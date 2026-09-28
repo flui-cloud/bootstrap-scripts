@@ -177,7 +177,7 @@ data_dir = "/var/lib/vector"
 # API interna per health checks
 [api]
 enabled = true
-address = "0.0.0.0:8686"
+address = "127.0.0.1:8686"
 
 # Source: journald logs
 [sources.journald]
@@ -728,7 +728,7 @@ EOF
 # API interna per health checks
 [api]
 enabled = true
-address = "0.0.0.0:8686"
+address = "127.0.0.1:8686"
 
 # Source: journald logs
 [sources.journald]
