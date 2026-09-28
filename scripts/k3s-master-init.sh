@@ -11,7 +11,7 @@ CLOUD_PROVIDER="${CLOUD_PROVIDER}"
 CLUSTER_ID="${CLUSTER_ID}"
 CLUSTER_NAME="${CLUSTER_NAME}"
 K3S_TOKEN="${K3S_TOKEN}"
-K3S_VERSION="${K3S_VERSION:-v1.35.4+k3s1}"
+K3S_VERSION="${K3S_VERSION:?K3S_VERSION must be passed by the Flui installer}"
 
 # Observability stack configuration
 DEPLOY_OBSERVABILITY_STACK="${DEPLOY_OBSERVABILITY_STACK:-false}"
@@ -959,14 +959,172 @@ log "=========================================="
 # fires. Deriving the list from the file keeps it from going stale.
 render_manifest() {
     local src="$1" dst="$2" vars
-    vars=$(grep -ohE '\$\{[A-Za-z_][A-Za-z0-9_]*\}' "$src" | sort -u | tr '\n' ' ')
+    # grep finds nothing in a file with no placeholder; under pipefail that would end the install.
+    vars=$({ grep -ohE '\$\{[A-Za-z_][A-Za-z0-9_]*\}' "$src" || true; } | sort -u | tr '\n' ' ')
+    RENDERED_VARS="${RENDERED_VARS:-} $vars"
     envsubst "$vars" < "$src" > "$dst"
+}
+
+# Read back by record_install_values so a later refresh renders the same way.
+RENDERED_VARS=""
+RECORDED_FLAGS=()
+RENDERED_FILES=()
+RAW_FILES=()
+TLS_WIRED_FILES=()
+
+json_string() {
+    local s="$1" out="" i ch code
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    if [[ "$s" =~ [[:cntrl:]] ]]; then
+        for (( i = 0; i < ${#s}; i++ )); do
+            ch="${s:i:1}"
+            if [[ "$ch" =~ [[:cntrl:]] ]]; then
+                printf -v code '%d' "'$ch"
+                if (( code < 32 )); then printf -v ch '\\u%04x' "$code"; fi
+            fi
+            out+="$ch"
+        done
+        s="$out"
+    fi
+    printf '"%s"' "$s"
+}
+
+json_array() {
+    local first=1 item
+    printf '['
+    for item in "$@"; do
+        [ "$first" = 1 ] || printf ','
+        first=0
+        json_string "$item"
+    done
+    printf ']'
+}
+
+apply_with_provenance() {
+    kubectl label --local -f - -o yaml \
+        app.kubernetes.io/managed-by=flui-cloud \
+        flui.cloud/managed=true \
+        flui.cloud/scope=system \
+        flui.cloud/owner-kind=platform \
+        flui.cloud/owner-id=flui-core \
+        | kubectl apply -f - >/dev/null
+}
+
+# The value goes through stdin, never argv, so it is not visible in the process list.
+ensure_platform_secret() {
+    local namespace="$1" name="$2" key="$3" value="$4"
+    printf '%s' "$value" \
+        | kubectl create secret generic "$name" -n "$namespace" \
+            --from-file="$key=/dev/stdin" --dry-run=client -o yaml \
+        | apply_with_provenance
+}
+
+# Applied with kubectl, not dropped into the manifest directory: k3s would
+# re-apply a file there on every start and put back the values of the day it was
+# installed over what a later refresh recorded.
+record_install_values() {
+    local cluster_type="$1"
+    local dir="/var/lib/rancher/k3s/server/manifests"
+    local tmp ref name value loc f sha first
+    tmp=$(mktemp -d)
+
+    ref="${FLUI_BOOTSTRAP_REF:-}"
+    if [ -z "$ref" ]; then
+        ref=$(printf '%s' "$MANIFESTS_BASE_URL" | sed -nE 's#.*/bootstrap-scripts/([^/]+)/manifests/?$#\1#p')
+    fi
+
+    local have_secrets=0
+    if curl -fsSL "$MANIFESTS_BASE_URL/SECRETS" -o "$tmp/SECRETS"; then
+        have_secrets=1
+    else
+        warn "Could not fetch the list of secret variables; the rendered values are not recorded"
+    fi
+
+    local names
+    names=$(printf '%s\n' $RENDERED_VARS | sed -nE 's/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/\1/p' | sort -u)
+
+    if [ "$have_secrets" = 1 ]; then
+        first=1
+        printf '{' > "$tmp/values.json"
+        for name in $names; do
+            grep -qE "^${name}[[:space:]]" "$tmp/SECRETS" && continue
+            value="${!name:-}"
+            [ "$first" = 1 ] || printf ',' >> "$tmp/values.json"
+            first=0
+            printf '%s:%s' "$(json_string "$name")" "$(json_string "$value")" >> "$tmp/values.json"
+        done
+        for pair in "${RECORDED_FLAGS[@]+"${RECORDED_FLAGS[@]}"}"; do
+            [ "$first" = 1 ] || printf ',' >> "$tmp/values.json"
+            first=0
+            printf '%s:%s' "$(json_string "${pair%%=*}")" "$(json_string "${pair#*=}")" >> "$tmp/values.json"
+        done
+        printf '}' >> "$tmp/values.json"
+
+        first=1
+        printf '{' > "$tmp/secretRefs.json"
+        for name in $names; do
+            loc=$(awk -v n="$name" '$1 == n { print $2 }' "$tmp/SECRETS")
+            [ -n "$loc" ] || continue
+            [ "$first" = 1 ] || printf ',' >> "$tmp/secretRefs.json"
+            first=0
+            # shellcheck disable=SC2086
+            printf '%s:%s' "$(json_string "$name")" "$(json_array $loc)" >> "$tmp/secretRefs.json"
+        done
+        printf '}' >> "$tmp/secretRefs.json"
+    fi
+
+    {
+        printf '{"raw":%s' "$(json_array "${RAW_FILES[@]+"${RAW_FILES[@]}"}")"
+        if [ "${#TLS_WIRED_FILES[@]}" -gt 0 ]; then
+            printf ',"ingressTls":{"secretName":"flui-system-tls","files":%s}' "$(json_array "${TLS_WIRED_FILES[@]}")"
+        fi
+        printf '}'
+    } > "$tmp/transforms.json"
+
+    first=1
+    printf '{' > "$tmp/rendered.json"
+    for f in $(printf '%s\n' "${RENDERED_FILES[@]+"${RENDERED_FILES[@]}"}" | sort -u); do
+        [ -f "$dir/$f" ] || continue
+        sha=$(sha256sum "$dir/$f" | cut -d' ' -f1)
+        [ "$first" = 1 ] || printf ',' >> "$tmp/rendered.json"
+        first=0
+        printf '%s:%s' "$(json_string "$f")" "$(json_string "$sha")" >> "$tmp/rendered.json"
+    done
+    printf '}' >> "$tmp/rendered.json"
+
+    local from_values=()
+    if [ "$have_secrets" = 1 ]; then
+        from_values=(--from-file=values.json="$tmp/values.json" --from-file=secretRefs.json="$tmp/secretRefs.json")
+    fi
+
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        if kubectl create configmap flui-install-values -n kube-system \
+            --from-literal=schema=1 \
+            --from-literal=bootstrapRef="$ref" \
+            --from-literal=releaseVersion="${FLUI_RELEASE_VERSION:-}" \
+            --from-literal=clusterType="$cluster_type" \
+            --from-literal=k3sVersion="$K3S_VERSION" \
+            "${from_values[@]+"${from_values[@]}"}" \
+            --from-file=transforms.json="$tmp/transforms.json" \
+            --from-file=rendered.json="$tmp/rendered.json" \
+            --dry-run=client -o yaml | apply_with_provenance; then
+            log "✅ Recorded what was installed in kube-system/flui-install-values"
+            rm -rf "$tmp"
+            return 0
+        fi
+        [ "$attempt" -lt 5 ] && sleep 10
+    done
+    warn "Could not record the installed values — a later refresh will only update files that need none"
+    rm -rf "$tmp"
 }
 
 TRAEFIK_MANIFEST_DIR="/var/lib/rancher/k3s/server/manifests"
 mkdir -p "$TRAEFIK_MANIFEST_DIR"
 if curl -fsSL "$MANIFESTS_BASE_URL/common/00a-traefik-config.yaml" -o "$TRAEFIK_MANIFEST_DIR/00a-traefik-config.yaml"; then
     log "✅ Traefik HelmChartConfig deployed — k3s helm-controller will reconcile Traefik as a hostNetwork DaemonSet"
+    RENDERED_FILES+=("00a-traefik-config.yaml"); RAW_FILES+=("00a-traefik-config.yaml")
 else
     warn "Failed to download common/00a-traefik-config.yaml — Traefik will NOT bind :80/:443 (apps unreachable). Check MANIFESTS_BASE_URL."
 fi
@@ -983,8 +1141,19 @@ log "=========================================="
 
 if curl -fsSL "$MANIFESTS_BASE_URL/common/01a-flui-local-storage.yaml" -o "$TRAEFIK_MANIFEST_DIR/01a-flui-local-storage.yaml"; then
     log "✅ flui-local StorageClass + provisioner deployed"
+    RENDERED_FILES+=("01a-flui-local-storage.yaml"); RAW_FILES+=("01a-flui-local-storage.yaml")
 else
     warn "Failed to download common/01a-flui-local-storage.yaml — dedicated-persistence apps (managed Postgres) will stay Pending. Check MANIFESTS_BASE_URL."
+fi
+
+# ============================================================
+# STEP 10d: Install system-upgrade-controller (all cluster types)
+# ============================================================
+if curl -fsSL "$MANIFESTS_BASE_URL/common/02-system-upgrade-controller.yaml" -o "$TRAEFIK_MANIFEST_DIR/02-system-upgrade-controller.yaml"; then
+    log "✅ system-upgrade-controller deployed"
+    RENDERED_FILES+=("02-system-upgrade-controller.yaml"); RAW_FILES+=("02-system-upgrade-controller.yaml")
+else
+    warn "Failed to download common/02-system-upgrade-controller.yaml — K3s upgrades from Flui will need a manifest refresh first."
 fi
 
 # ============================================================
@@ -1272,6 +1441,7 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         if [ "$manifest" = "01a-flui-local-storage" ]; then
             cp "/tmp/${manifest}.yaml" "$MANIFEST_DIR/${manifest}.yaml"
             log "✅ ${manifest}.yaml deployed (raw, no envsubst)"
+            RENDERED_FILES+=("${manifest}.yaml"); RAW_FILES+=("${manifest}.yaml")
             rm -f "/tmp/${manifest}.yaml"
             continue
         fi
@@ -1330,14 +1500,29 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
            [[ "$manifest" == "09-flui-api" || "$manifest" == "10-flui-web" || "$manifest" == "11-zitadel" ]]; then
             sed -i 's|^  tls: {}$|  tls:\n    secretName: flui-system-tls|' "$MANIFEST_DIR/${manifest}.yaml"
             log "✓ Wired ${manifest} IngressRoute to flui-system-tls"
+            TLS_WIRED_FILES+=("${manifest}.yaml")
         fi
 
+        RENDERED_FILES+=("${manifest}.yaml")
         log "✅ ${manifest}.yaml deployed"
         rm -f "/tmp/${manifest}.yaml"
     done
 
     log "✅ All manifests downloaded and deployed to $MANIFEST_DIR"
     log "K3s will auto-apply these manifests..."
+
+    # 04d and 08 read these instead of carrying the values in their own bodies.
+    log "→ Waiting for the flui-control namespace to store the observability credentials..."
+    for _ in $(seq 1 150); do
+        kubectl get namespace flui-control >/dev/null 2>&1 && break
+        sleep 2
+    done
+    if ensure_platform_secret flui-control alertmanager-webhook token "$ALERTS_WEBHOOK_TOKEN" \
+        && ensure_platform_secret flui-control grafana-admin password "$GRAFANA_PASSWORD"; then
+        log "✅ Alertmanager and Grafana credentials stored as Secrets in flui-control"
+    else
+        warn "Could not store the Alertmanager/Grafana credentials — alerts will not reach Flui and Grafana will not start"
+    fi
 
     # Async TLS certificate bootstrap (nip.io clusters only)
     # Waits for cert-manager + Traefik + namespace, then applies the Certificate.
@@ -1373,6 +1558,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             log "✓ TLS bootstrap subshell started (PID $!) — log: /var/log/flui-cert-bootstrap.log"
         fi
     fi
+
+    record_install_values control || warn "Recording the installed values failed"
 
     # Async OIDC provisioning (parallel to flui-api boot)
     # Provisions the Zitadel project/apps/roles and patches flui-secrets/configmaps
@@ -1435,8 +1622,9 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
         log "→ Creating Zitadel database and users on PostgreSQL..."
         kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -c "CREATE DATABASE zitadel;" 2>/dev/null || log "  (zitadel database already exists)"
-        kubectl exec -n flui-system statefulset/postgres -- \
-            psql -U fluicloud -c "CREATE USER zitadel_admin WITH CREATEDB CREATEROLE PASSWORD '${ZITADEL_DB_ADMIN_PASSWORD}';" 2>/dev/null || log "  (zitadel_admin user already exists)"
+        printf "CREATE USER zitadel_admin WITH CREATEDB CREATEROLE PASSWORD '%s';\n" "$ZITADEL_DB_ADMIN_PASSWORD" \
+            | kubectl exec -i -n flui-system statefulset/postgres -- \
+                psql -U fluicloud -v ON_ERROR_STOP=1 2>/dev/null || log "  (zitadel_admin user already exists)"
         kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -c "ALTER USER zitadel_admin WITH CREATEDB CREATEROLE;" 2>/dev/null || true
         kubectl exec -n flui-system statefulset/postgres -- \
@@ -1445,8 +1633,9 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             psql -U fluicloud -d zitadel -c "GRANT ALL ON SCHEMA public TO zitadel_admin;" 2>/dev/null || true
         kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -d zitadel -c "ALTER DATABASE zitadel OWNER TO zitadel_admin;" 2>/dev/null || true
-        kubectl exec -n flui-system statefulset/postgres -- \
-            psql -U fluicloud -c "CREATE USER zitadel_user WITH PASSWORD '${ZITADEL_DB_USER_PASSWORD}';" 2>/dev/null || log "  (zitadel_user user already exists)"
+        printf "CREATE USER zitadel_user WITH PASSWORD '%s';\n" "$ZITADEL_DB_USER_PASSWORD" \
+            | kubectl exec -i -n flui-system statefulset/postgres -- \
+                psql -U fluicloud -v ON_ERROR_STOP=1 2>/dev/null || log "  (zitadel_user user already exists)"
         kubectl exec -n flui-system statefulset/postgres -- \
             psql -U fluicloud -c "GRANT ALL PRIVILEGES ON DATABASE zitadel TO zitadel_user;" 2>/dev/null || true
         kubectl exec -n flui-system statefulset/postgres -- \
@@ -1529,10 +1718,15 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     fi
 
     log "→ Injecting kubeconfig into flui-secrets..."
-    KUBECONFIG_B64=$(base64 -w 0 /etc/rancher/k3s/k3s.yaml)
-    if kubectl patch secret flui-secrets -n flui-system \
-        --type='json' \
-        -p="[{\"op\":\"add\",\"path\":\"/data/KUBECONFIG_CONTENT\",\"value\":\"${KUBECONFIG_B64}\"}]" 2>/dev/null; then
+    KUBECONFIG_PATCH=$(mktemp)
+    chmod 600 "$KUBECONFIG_PATCH"
+    printf '[{"op":"add","path":"/data/KUBECONFIG_CONTENT","value":"%s"}]' \
+        "$(base64 -w 0 /etc/rancher/k3s/k3s.yaml)" > "$KUBECONFIG_PATCH"
+    KUBECONFIG_PATCHED=0
+    kubectl patch secret flui-secrets -n flui-system \
+        --type='json' --patch-file="$KUBECONFIG_PATCH" >/dev/null 2>&1 && KUBECONFIG_PATCHED=1
+    rm -f "$KUBECONFIG_PATCH"
+    if [ "$KUBECONFIG_PATCHED" = 1 ]; then
         log "✅ Kubeconfig injected into flui-secrets"
         kubectl rollout restart deployment/flui-api -n flui-system 2>/dev/null || true
         log "✅ Flui API restarted to pick up kubeconfig"
@@ -1567,8 +1761,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
     log "=========================================="
     log "Grafana:    cluster-internal only (kubectl port-forward grafana)"
     log "vmsingle:   NodePort 30428 (remote_write receiver, VNet-private)"
-    log "PostgreSQL: postgres:5432 (fluicloud/$POSTGRES_PASSWORD) — cluster-internal"
-    log "Redis:      redis:6379 (password: $REDIS_PASSWORD) — cluster-internal"
+    log "PostgreSQL: postgres:5432 — cluster-internal (credentials in flui-system/flui-secrets)"
+    log "Redis:      redis:6379 — cluster-internal (password in flui-system/flui-secrets)"
     log "Loki:       cluster-internal only"
     log "Flui API:   https://api.$FLUI_BASE_DOMAIN"
     log "Flui Web:   https://app.$FLUI_BASE_DOMAIN"
@@ -1612,6 +1806,7 @@ else
                     /tmp/vmagent.yaml > "$MANIFEST_DIR/vmagent.yaml"
             fi
             log "✅ Workload vmagent manifest deployed"
+            RENDERED_FILES+=("vmagent.yaml")
             rm -f /tmp/vmagent.yaml
 
             # kube-state-metrics must run here too: the flui:app_* recording rules on
@@ -1621,6 +1816,7 @@ else
             if curl -fsSL "$MANIFESTS_BASE_URL/workload/kube-state-metrics.yaml" \
                 -o "$MANIFEST_DIR/kube-state-metrics.yaml"; then
                 log "✅ Workload kube-state-metrics manifest deployed"
+                RENDERED_FILES+=("kube-state-metrics.yaml"); RAW_FILES+=("kube-state-metrics.yaml")
             else
                 warn "Failed to download kube-state-metrics manifest — app metrics will read null"
             fi
@@ -1631,6 +1827,14 @@ else
         log "ℹ Skipping workload vmagent (DEPLOY_MONITORING_AGENT=$DEPLOY_MONITORING_AGENT, OBSERVABILITY_CLUSTER_IP=${OBSERVABILITY_CLUSTER_IP:-empty})"
     fi
 
+    # What was actually deployed, not what was asked for: a refresh adds the
+    # metrics agent only where this says it runs.
+    if [ -f /var/lib/rancher/k3s/server/manifests/vmagent.yaml ]; then
+        RECORDED_FLAGS+=("DEPLOY_MONITORING_AGENT=true")
+    else
+        RECORDED_FLAGS+=("DEPLOY_MONITORING_AGENT=false")
+    fi
+    record_install_values workload || warn "Recording the installed values failed"
     update_health "ready" "k3s-only" ""
 fi
 

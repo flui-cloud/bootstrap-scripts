@@ -1,0 +1,11 @@
+# The manifests every cluster of this release carries, control and workload.
+#
+# The installer copies these as they are, with no substitution: 01a's
+# provisioner scripts use shell variables of their own that rendering would
+# blank. `flui env refresh-manifests` reads this list to replace or add them,
+# and treats them the same way.
+#
+# Lines beginning with # are comments.
+00a-traefik-config
+01a-flui-local-storage
+02-system-upgrade-controller

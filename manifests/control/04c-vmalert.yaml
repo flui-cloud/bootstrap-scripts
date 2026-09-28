@@ -507,6 +507,50 @@ data:
               flui_kind: node
             annotations:
               summary: "Node {{ $labels.instance }} is not reporting"
+
+      # cert-manager renews a certificate a third of its life before it ends,
+      # so one still inside 14 days means renewal has been failing for weeks.
+      # A certificate never issued reports 0 as its end: that is NotReady, not
+      # expiring. Aggregated by certificate so a cert-manager restart does not
+      # end one episode and start another.
+      - name: flui_certificate
+        interval: 5m
+        rules:
+          - record: flui:certificate_seconds_left
+            expr: |
+              min by (cluster_id, exported_namespace, name) (
+                certmanager_certificate_expiration_timestamp_seconds > 0
+              ) - time()
+          - alert: FluiCertificateExpiringSoon
+            expr: flui:certificate_seconds_left < 14 * 86400
+            for: 1h
+            labels:
+              severity: warning
+              flui_kind: certificate
+            annotations:
+              summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} ends in less than 14 days"
+              description: "It should have been renewed by now. Check the domain's DNS and the certificate issuer."
+          - alert: FluiCertificateExpiring
+            expr: flui:certificate_seconds_left < 3 * 86400
+            for: 30m
+            labels:
+              severity: critical
+              flui_kind: certificate
+            annotations:
+              summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} ends in less than 3 days"
+              description: "Browsers will refuse the address once it ends. Renewal has failed; check the domain's DNS and the certificate issuer."
+          - alert: FluiCertificateNotReady
+            expr: |
+              max by (cluster_id, exported_namespace, name) (
+                certmanager_certificate_ready_status{condition="False"}
+              ) == 1
+            for: 6h
+            labels:
+              severity: warning
+              flui_kind: certificate
+            annotations:
+              summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} has not been issued for 6 hours"
+              description: "The address it protects is served without a valid certificate until it is."
 ---
 apiVersion: apps/v1
 kind: Deployment

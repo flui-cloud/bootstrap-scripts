@@ -38,16 +38,19 @@ data:
             # authenticated even though Alertmanager only ever calls it in-cluster.
             # Sent as a bearer token: Alertmanager's http_config cannot set the
             # X-Flui-Token header other Flui webhooks use, so the endpoint accepts both.
+            # Read from the mounted Secret, so this file carries no secret and can be
+            # refreshed from a release like any other.
             http_config:
               authorization:
                 type: Bearer
-                credentials: "${ALERTS_WEBHOOK_TOKEN}"
+                credentials_file: /etc/alertmanager-secrets/token
 
     inhibit_rules:
-      # An app already firing critical does not also need its warning delivered.
+      # Something already firing critical does not also need its warning
+      # delivered — the same app, node or certificate, never another one.
       - source_matchers: ['severity="critical"']
         target_matchers: ['severity="warning"']
-        equal: ['namespace', 'label_app_kubernetes_io_name']
+        equal: ['cluster_id', 'namespace', 'label_app_kubernetes_io_name', 'deployment', 'statefulset', 'instance', 'exported_namespace', 'name']
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -119,6 +122,9 @@ spec:
               mountPath: /etc/alertmanager
             - name: data
               mountPath: /alertmanager
+            - name: webhook-token
+              mountPath: /etc/alertmanager-secrets
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /-/healthy
@@ -145,6 +151,12 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: alertmanager-data
+        - name: webhook-token
+          secret:
+            secretName: alertmanager-webhook
+            items:
+              - key: token
+                path: token
 ---
 apiVersion: v1
 kind: Service

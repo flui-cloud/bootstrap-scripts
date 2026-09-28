@@ -56,7 +56,10 @@ spec:
             - containerPort: 3000
           env:
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: "${GRAFANA_PASSWORD}"
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin
+                  key: password
             - name: GF_INSTALL_PLUGINS
               value: ""
           volumeMounts:

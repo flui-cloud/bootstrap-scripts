@@ -1,0 +1,11 @@
+# The workload-cluster manifests this release installs, on top of manifests/common.
+#
+# `flui env refresh-manifests --cluster <id>` reads this list to replace or add
+# them. A name followed by `requires=<VARIABLE>` is installed only when the
+# installer recorded that variable as `true` in kube-system/flui-install-values:
+# the metrics agent exists only where monitoring was deployed, and a refresh
+# must never add it anywhere else.
+#
+# Lines beginning with # are comments.
+vmagent requires=DEPLOY_MONITORING_AGENT
+kube-state-metrics requires=DEPLOY_MONITORING_AGENT
