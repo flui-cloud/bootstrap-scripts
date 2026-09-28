@@ -172,40 +172,52 @@ data:
         rules:
           - record: flui:app_replicas_desired
             expr: |
-              sum by (namespace, deployment) (
+              sum by (namespace, deployment, label_app_kubernetes_io_name) (
                 kube_deployment_spec_replicas
-                * on (namespace, deployment) group_left()
-                label_replace(
-                  kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"},
-                  "deployment", "$1", "deployment", "(.*)"
-                )
+                * on (namespace, deployment) group_left(label_app_kubernetes_io_name)
+                kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_replicas_desired
+            expr: |
+              sum by (namespace, statefulset, label_app_kubernetes_io_name) (
+                kube_statefulset_replicas
+                * on (namespace, statefulset) group_left(label_app_kubernetes_io_name)
+                kube_statefulset_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_replicas_ready
             expr: |
-              sum by (namespace, deployment) (
+              sum by (namespace, deployment, label_app_kubernetes_io_name) (
                 kube_deployment_status_replicas_ready
-                * on (namespace, deployment) group_left()
-                label_replace(
-                  kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"},
-                  "deployment", "$1", "deployment", "(.*)"
-                )
+                * on (namespace, deployment) group_left(label_app_kubernetes_io_name)
+                kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_replicas_ready
+            expr: |
+              sum by (namespace, statefulset, label_app_kubernetes_io_name) (
+                kube_statefulset_status_replicas_ready
+                * on (namespace, statefulset) group_left(label_app_kubernetes_io_name)
+                kube_statefulset_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_replicas_unavailable
             expr: |
-              sum by (namespace, deployment) (
+              sum by (namespace, deployment, label_app_kubernetes_io_name) (
                 kube_deployment_status_replicas_unavailable
-                * on (namespace, deployment) group_left()
-                label_replace(
-                  kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"},
-                  "deployment", "$1", "deployment", "(.*)"
-                )
+                * on (namespace, deployment) group_left(label_app_kubernetes_io_name)
+                kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+          - record: flui:app_replicas_unavailable
+            expr: |
+              sum by (namespace, statefulset, label_app_kubernetes_io_name) (
+                clamp_min(kube_statefulset_replicas - kube_statefulset_status_replicas_ready, 0)
+                * on (namespace, statefulset) group_left(label_app_kubernetes_io_name)
+                kube_statefulset_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_status_ready_ratio
             expr: |
               flui:app_replicas_ready / flui:app_replicas_desired
           - record: flui:app_up
             expr: |
-              (flui:app_replicas_ready == flui:app_replicas_desired)
+              (flui:app_replicas_ready == bool flui:app_replicas_desired)
               and
               (flui:app_replicas_desired > 0)
           - record: flui:app_restart_total
@@ -270,7 +282,7 @@ data:
         interval: 30s
         rules:
           - alert: FluiAppDown
-            expr: flui:app_up == 0
+            expr: flui:app_replicas_ready == 0 and flui:app_replicas_desired > 0
             for: 5m
             labels:
               severity: critical
@@ -315,7 +327,7 @@ data:
               description: "Its runs have not succeeded for more than two schedule periods."
 
           - alert: FluiAppNotFullyReady
-            expr: flui:app_status_ready_ratio < 1
+            expr: flui:app_status_ready_ratio < 1 and flui:app_replicas_ready > 0
             for: 15m
             labels:
               severity: warning

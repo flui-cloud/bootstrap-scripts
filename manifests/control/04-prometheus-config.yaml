@@ -336,38 +336,47 @@ data:
           # Desired replicas per app
           - record: flui:app_replicas_desired
             expr: |
-              sum by (namespace, deployment) (
+              sum by (namespace, deployment, label_app_kubernetes_io_name) (
                 kube_deployment_spec_replicas
-                * on (namespace, deployment) group_left()
-                label_replace(
-                  kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"},
-                  "deployment", "$1", "deployment", "(.*)"
-                )
+                * on (namespace, deployment) group_left(label_app_kubernetes_io_name)
+                kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
-
-          # Ready replicas per app
+          - record: flui:app_replicas_desired
+            expr: |
+              sum by (namespace, statefulset, label_app_kubernetes_io_name) (
+                kube_statefulset_replicas
+                * on (namespace, statefulset) group_left(label_app_kubernetes_io_name)
+                kube_statefulset_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
           - record: flui:app_replicas_ready
             expr: |
-              sum by (namespace, deployment) (
+              sum by (namespace, deployment, label_app_kubernetes_io_name) (
                 kube_deployment_status_replicas_ready
-                * on (namespace, deployment) group_left()
-                label_replace(
-                  kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"},
-                  "deployment", "$1", "deployment", "(.*)"
-                )
+                * on (namespace, deployment) group_left(label_app_kubernetes_io_name)
+                kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
-
-          # Unavailable replicas per app
+          - record: flui:app_replicas_ready
+            expr: |
+              sum by (namespace, statefulset, label_app_kubernetes_io_name) (
+                kube_statefulset_status_replicas_ready
+                * on (namespace, statefulset) group_left(label_app_kubernetes_io_name)
+                kube_statefulset_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
           - record: flui:app_replicas_unavailable
             expr: |
-              sum by (namespace, deployment) (
+              sum by (namespace, deployment, label_app_kubernetes_io_name) (
                 kube_deployment_status_replicas_unavailable
-                * on (namespace, deployment) group_left()
-                label_replace(
-                  kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"},
-                  "deployment", "$1", "deployment", "(.*)"
-                )
+                * on (namespace, deployment) group_left(label_app_kubernetes_io_name)
+                kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
+          - record: flui:app_replicas_unavailable
+            expr: |
+              sum by (namespace, statefulset, label_app_kubernetes_io_name) (
+                clamp_min(kube_statefulset_replicas - kube_statefulset_status_replicas_ready, 0)
+                * on (namespace, statefulset) group_left(label_app_kubernetes_io_name)
+                kube_statefulset_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+              )
+
 
           # Readiness ratio (0 to 1, where 1 = fully healthy)
           - record: flui:app_status_ready_ratio
@@ -377,7 +386,7 @@ data:
           # Binary up/down (1 = all replicas ready, 0 = degraded or down)
           - record: flui:app_up
             expr: |
-              (flui:app_replicas_ready == flui:app_replicas_desired)
+              (flui:app_replicas_ready == bool flui:app_replicas_desired)
               and
               (flui:app_replicas_desired > 0)
 
