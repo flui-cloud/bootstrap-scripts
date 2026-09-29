@@ -10,6 +10,8 @@ metadata:
     app.kubernetes.io/managed-by: flui-cloud
     flui.cloud/managed: "true"
     flui.cloud/scope: "system"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
 value: 1000000
 preemptionPolicy: Never
 globalDefault: false
