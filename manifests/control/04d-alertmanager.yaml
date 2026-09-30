@@ -101,6 +101,12 @@ spec:
         app.kubernetes.io/name: alertmanager
         app.kubernetes.io/managed-by: flui-cloud
     spec:
+      # The volume lives on the master, and master protection taints it: without
+      # this the pod can never come back once it is recreated.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534

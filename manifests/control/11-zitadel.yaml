@@ -120,6 +120,12 @@ spec:
         app.kubernetes.io/instance: zitadel
     spec:
       priorityClassName: flui-platform
+      # The volume lives on the master, and master protection taints it: without
+      # this the pod can never come back once it is recreated.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
       enableServiceLinks: false
       containers:
         - name: zitadel
