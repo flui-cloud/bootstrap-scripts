@@ -1454,6 +1454,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
             export OIDC_ISSUER OIDC_JWKS_URI OIDC_AUDIENCE
             export AUTH_MODE JWT_SECRET ADMIN_EMAIL ADMIN_PASSWORD CERTIFICATE_MODE
             export FLUI_BASE_DOMAIN NIP_HOSTNAME_TOKEN
+            export FLUI_IMAGE_REGISTRY="${FLUI_IMAGE_REGISTRY:-}"
+            export FLUI_REGISTRY_STORAGE_BACKEND="${FLUI_REGISTRY_STORAGE_BACKEND:-}"
             export FLUI_BOOTSTRAP_NODE_PRIVATE_IP="${PRIVATE_IP:-}"
             # Public/reachable IP for the API's cluster seed (BYOS: differs from
             # the internal node IP; empty for provisioned, where MASTER_IP is public).
@@ -1491,6 +1493,8 @@ if [ "$DEPLOY_OBSERVABILITY_STACK" = "true" ]; then
                 -e "s|\${ADMIN_PASSWORD}|$ADMIN_PASSWORD|g" \
                 -e "s/\${FLUI_BASE_DOMAIN}/$FLUI_BASE_DOMAIN/g" \
                 -e "s/\${NIP_HOSTNAME_TOKEN}/$NIP_HOSTNAME_TOKEN/g" \
+                -e "s/\${FLUI_IMAGE_REGISTRY}/${FLUI_IMAGE_REGISTRY:-}/g" \
+                -e "s/\${FLUI_REGISTRY_STORAGE_BACKEND}/${FLUI_REGISTRY_STORAGE_BACKEND:-}/g" \
                 -e "s|\${FLUI_API_IMAGE_TAG}|$FLUI_API_IMAGE_TAG|g" \
                 -e "s|\${FLUI_WEB_IMAGE_TAG}|$FLUI_WEB_IMAGE_TAG|g" \
                 "/tmp/${manifest}.yaml" > "$MANIFEST_DIR/${manifest}.yaml"
