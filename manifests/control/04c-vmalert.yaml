@@ -20,27 +20,27 @@ data:
         rules:
           - record: flui:app_cpu_usage_cores
             expr: |
-              sum by (namespace, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, label_app_kubernetes_io_name) (
                 rate(container_cpu_usage_seconds_total{
                   image!="",
                   container!="POD",
                   container!=""
                 }[5m])
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_cpu_requests_cores
             expr: |
-              sum by (namespace, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, label_app_kubernetes_io_name) (
                 kube_pod_container_resource_requests{resource="cpu"}
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_cpu_limits_cores
             expr: |
-              sum by (namespace, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, label_app_kubernetes_io_name) (
                 kube_pod_container_resource_limits{resource="cpu"}
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_cpu_utilization_percent
@@ -48,27 +48,27 @@ data:
               (flui:app_cpu_usage_cores / flui:app_cpu_limits_cores) * 100
           - record: flui:app_cpu_usage_cores_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name) (
                 rate(container_cpu_usage_seconds_total{
                   image!="",
                   container!="POD",
                   container!=""
                 }[5m])
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_cpu_requests_cores_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name) (
                 kube_pod_container_resource_requests{resource="cpu"}
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_cpu_limits_cores_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name) (
                 kube_pod_container_resource_limits{resource="cpu"}
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_cpu_utilization_percent_by_pod
@@ -80,27 +80,27 @@ data:
         rules:
           - record: flui:app_memory_usage_bytes
             expr: |
-              sum by (namespace, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, label_app_kubernetes_io_name) (
                 container_memory_working_set_bytes{
                   image!="",
                   container!="POD",
                   container!=""
                 }
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_memory_requests_bytes
             expr: |
-              sum by (namespace, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, label_app_kubernetes_io_name) (
                 kube_pod_container_resource_requests{resource="memory"}
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_memory_limits_bytes
             expr: |
-              sum by (namespace, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, label_app_kubernetes_io_name) (
                 kube_pod_container_resource_limits{resource="memory"}
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_memory_utilization_percent
@@ -108,27 +108,27 @@ data:
               (flui:app_memory_usage_bytes / flui:app_memory_limits_bytes) * 100
           - record: flui:app_memory_usage_bytes_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name) (
                 container_memory_working_set_bytes{
                   image!="",
                   container!="POD",
                   container!=""
                 }
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_memory_requests_bytes_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name) (
                 kube_pod_container_resource_requests{resource="memory"}
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_memory_limits_bytes_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name) (
                 kube_pod_container_resource_limits{resource="memory"}
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_memory_utilization_percent_by_pod
@@ -140,77 +140,94 @@ data:
         rules:
           - record: flui:app_network_receive_bytes_rate
             expr: |
-              sum by (namespace, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, label_app_kubernetes_io_name) (
                 rate(container_network_receive_bytes_total{interface="eth0"}[5m])
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_network_transmit_bytes_rate
             expr: |
-              sum by (namespace, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, label_app_kubernetes_io_name) (
                 rate(container_network_transmit_bytes_total{interface="eth0"}[5m])
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_network_receive_bytes_rate_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name) (
                 rate(container_network_receive_bytes_total{interface="eth0"}[5m])
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_network_transmit_bytes_rate_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name) (
                 rate(container_network_transmit_bytes_total{interface="eth0"}[5m])
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
 
+      # Every rule keeps cluster_id: one VictoriaMetrics holds every cluster, and
+      # the same namespace and name exist on several (system-upgrade-controller
+      # on all of them), which makes a join without it fail as duplicate series.
+      # StatefulSets carry the Flui labels only on their pods, so their
+      # application is found through the pods they own.
       - name: flui_app_status
         interval: 15s
         rules:
           - record: flui:app_replicas_desired
             expr: |
-              sum by (namespace, deployment, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, deployment, label_app_kubernetes_io_name) (
                 kube_deployment_spec_replicas
-                * on (namespace, deployment) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, deployment) group_left(label_app_kubernetes_io_name)
                 kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_replicas_desired
             expr: |
-              sum by (namespace, statefulset, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, statefulset, label_app_kubernetes_io_name) (
                 kube_statefulset_replicas
-                * on (namespace, statefulset) group_left(label_app_kubernetes_io_name)
-                kube_statefulset_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+                * on (cluster_id, namespace, statefulset) group_left(label_app_kubernetes_io_name)
+                max by (cluster_id, namespace, statefulset, label_app_kubernetes_io_name) (
+                  label_replace(kube_pod_owner{owner_kind="StatefulSet"}, "statefulset", "$1", "owner_name", "(.*)")
+                  * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
+                  kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+                )
               )
           - record: flui:app_replicas_ready
             expr: |
-              sum by (namespace, deployment, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, deployment, label_app_kubernetes_io_name) (
                 kube_deployment_status_replicas_ready
-                * on (namespace, deployment) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, deployment) group_left(label_app_kubernetes_io_name)
                 kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_replicas_ready
             expr: |
-              sum by (namespace, statefulset, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, statefulset, label_app_kubernetes_io_name) (
                 kube_statefulset_status_replicas_ready
-                * on (namespace, statefulset) group_left(label_app_kubernetes_io_name)
-                kube_statefulset_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+                * on (cluster_id, namespace, statefulset) group_left(label_app_kubernetes_io_name)
+                max by (cluster_id, namespace, statefulset, label_app_kubernetes_io_name) (
+                  label_replace(kube_pod_owner{owner_kind="StatefulSet"}, "statefulset", "$1", "owner_name", "(.*)")
+                  * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
+                  kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+                )
               )
           - record: flui:app_replicas_unavailable
             expr: |
-              sum by (namespace, deployment, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, deployment, label_app_kubernetes_io_name) (
                 kube_deployment_status_replicas_unavailable
-                * on (namespace, deployment) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, deployment) group_left(label_app_kubernetes_io_name)
                 kube_deployment_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_replicas_unavailable
             expr: |
-              sum by (namespace, statefulset, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, statefulset, label_app_kubernetes_io_name) (
                 clamp_min(kube_statefulset_replicas - kube_statefulset_status_replicas_ready, 0)
-                * on (namespace, statefulset) group_left(label_app_kubernetes_io_name)
-                kube_statefulset_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+                * on (cluster_id, namespace, statefulset) group_left(label_app_kubernetes_io_name)
+                max by (cluster_id, namespace, statefulset, label_app_kubernetes_io_name) (
+                  label_replace(kube_pod_owner{owner_kind="StatefulSet"}, "statefulset", "$1", "owner_name", "(.*)")
+                  * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
+                  kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
+                )
               )
           - record: flui:app_status_ready_ratio
             expr: |
@@ -222,44 +239,44 @@ data:
               (flui:app_replicas_desired > 0)
           - record: flui:app_restart_total
             expr: |
-              sum by (namespace, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, label_app_kubernetes_io_name) (
                 kube_pod_container_status_restarts_total
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_restart_rate_1h
             expr: |
-              sum by (namespace, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, label_app_kubernetes_io_name) (
                 increase(kube_pod_container_status_restarts_total[1h])
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_restart_total_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name) (
                 kube_pod_container_status_restarts_total
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_restart_rate_1h_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name) (
                 increase(kube_pod_container_status_restarts_total[1h])
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_pod_ready_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name) (
                 kube_pod_status_ready{condition="true"}
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
           - record: flui:app_pod_phase_by_pod
             expr: |
-              sum by (namespace, pod, label_app_kubernetes_io_name, phase) (
+              sum by (cluster_id, namespace, pod, label_app_kubernetes_io_name, phase) (
                 (kube_pod_status_phase{phase=~"Running|Pending|Failed|Succeeded|Unknown"} > 0)
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
 
@@ -268,9 +285,9 @@ data:
         rules:
           - record: flui:app_pods_by_phase
             expr: |
-              sum by (namespace, label_app_kubernetes_io_name, phase) (
+              sum by (cluster_id, namespace, label_app_kubernetes_io_name, phase) (
                 (kube_pod_status_phase{phase=~"Running|Pending|Failed|Succeeded|Unknown"} > 0)
-                * on (namespace, pod) group_left(label_app_kubernetes_io_name)
+                * on (cluster_id, namespace, pod) group_left(label_app_kubernetes_io_name)
                 kube_pod_labels{label_app_kubernetes_io_managed_by="flui-cloud"}
               )
   alerting_rules.yml: |
@@ -354,15 +371,18 @@ data:
           # label and all clusters remote-write into the same vmsingle, so aggregating
           # on `service` alone would merge two clusters' traffic into one alert and
           # leave the receiver unable to say which cluster it came from.
+          # The router's counters where a cluster's Traefik keeps them: only those
+          # count the 503 Traefik answers itself while an application has no ready
+          # copy. The service's stand in for clusters not yet refreshed.
           - alert: FluiAppHighErrorRate
             expr: |
               (
-                sum by (cluster_id, service) (rate(traefik_service_requests_total{code=~"5.."}[5m]))
+                (sum by (cluster_id, service) (rate(traefik_router_requests_total{code=~"5.."}[5m])) or sum by (cluster_id, service) (rate(traefik_service_requests_total{code=~"5.."}[5m])))
                 /
-                sum by (cluster_id, service) (rate(traefik_service_requests_total[5m]))
+                (sum by (cluster_id, service) (rate(traefik_router_requests_total[5m])) or sum by (cluster_id, service) (rate(traefik_service_requests_total[5m])))
               ) * 100 > 5
               and
-              sum by (cluster_id, service) (rate(traefik_service_requests_total[5m])) > 0.05
+              (sum by (cluster_id, service) (rate(traefik_router_requests_total[5m])) or sum by (cluster_id, service) (rate(traefik_service_requests_total[5m]))) > 0.05
             for: 10m
             labels:
               severity: critical
@@ -375,10 +395,10 @@ data:
             expr: |
               histogram_quantile(
                 0.95,
-                sum by (cluster_id, service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))
+                (sum by (cluster_id, service, le) (rate(traefik_router_request_duration_seconds_bucket{protocol!~"websocket|sse"}[5m])) or sum by (cluster_id, service, le) (rate(traefik_service_request_duration_seconds_bucket{protocol!~"websocket|sse"}[5m])))
               ) > 2
               and
-              sum by (cluster_id, service) (rate(traefik_service_requests_total[5m])) > 0.05
+              (sum by (cluster_id, service) (rate(traefik_router_requests_total[5m])) or sum by (cluster_id, service) (rate(traefik_service_requests_total[5m]))) > 0.05
             for: 10m
             labels:
               severity: warning
@@ -408,7 +428,7 @@ data:
                 kubelet_volume_stats_used_bytes
                 / kubelet_volume_stats_capacity_bytes * 100
               )
-              * on (namespace, persistentvolumeclaim) group_left()
+              * on (cluster_id, namespace, persistentvolumeclaim) group_left()
                 kube_persistentvolumeclaim_info{storageclass!~"local-path|flui-local"}
               > 80
             for: 10m
@@ -426,7 +446,7 @@ data:
                 kubelet_volume_stats_used_bytes
                 / kubelet_volume_stats_capacity_bytes * 100
               )
-              * on (namespace, persistentvolumeclaim) group_left()
+              * on (cluster_id, namespace, persistentvolumeclaim) group_left()
                 kube_persistentvolumeclaim_info{storageclass!~"local-path|flui-local"}
               > 90
             for: 5m

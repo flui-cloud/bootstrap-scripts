@@ -39,8 +39,10 @@ spec:
     # Passed as CLI flags rather than chart values: the flag names are verifiable against
     # the running container's own args, the chart's values schema is version-dependent.
     #
-    # addRoutersLabels is deliberately left off — nothing consumes per-router series yet,
-    # and it would multiply cardinality for no reader.
+    # addRoutersLabels: the per-router series also count what Traefik answers by itself,
+    # such as the 503 it gives while an application has no ready copy. The per-service
+    # series never see those, so an application's own error rate missed exactly the
+    # errors its visitors saw under load.
     #
     # ORDERING HAZARD — read before applying this file to an existing cluster.
     # Access logs below emit the request path with its query string, which carries
@@ -53,11 +55,17 @@ spec:
     #
     # Headers are explicitly dropped: it is Traefik's default, but this one is
     # security-relevant enough to state rather than inherit.
+    #
+    # readTimeout bounds the whole request body. Traefik's default (60s) cuts an
+    # image layer pushed to the instance registry halfway on an ordinary uplink;
+    # 600s still ends a request that stalls, it just lets a large one finish.
     additionalArguments:
       - "--metrics.prometheus.buckets=0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10"
+      - "--metrics.prometheus.addRoutersLabels=true"
       - "--accesslog=true"
       - "--accesslog.format=json"
       - "--accesslog.fields.headers.defaultmode=drop"
+      - "--entrypoints.websecure.transport.respondingTimeouts.readTimeout=600s"
     ports:
       metrics:
         port: 9101

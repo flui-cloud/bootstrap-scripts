@@ -44,6 +44,21 @@ spec:
       services:
         - name: flui-api
           port: 3000
+    # Live updates reach a browser through one copy of the API: a long-polling
+    # session is known only to the copy that opened it, so its requests keep
+    # going back there. Everything else is spread across the copies freely.
+    - match: Host(`api.${FLUI_BASE_DOMAIN}`) && PathPrefix(`/socket.io/`)
+      kind: Rule
+      priority: 110
+      services:
+        - name: flui-api
+          port: 3000
+          sticky:
+            cookie:
+              name: flui_api_live
+              secure: true
+              httpOnly: true
+              sameSite: lax
   tls: {}
 ---
 apiVersion: apps/v1
@@ -75,6 +90,15 @@ spec:
         app.kubernetes.io/instance: flui-api
     spec:
       priorityClassName: flui-platform
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: flui-api
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36
@@ -104,21 +128,25 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 30
+          # A copy busy with a surge answers its ping late; restarting it then
+          # throws away the requests it is serving and sends them all to the
+          # others. Liveness only gives up after a minute of silence; readiness
+          # takes a busy copy out of the route sooner, which moves the load.
           livenessProbe:
             httpGet:
               path: /api/v1/health/ping
               port: 3000
             initialDelaySeconds: 60
             periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
+            timeoutSeconds: 10
+            failureThreshold: 6
           readinessProbe:
             httpGet:
               path: /api/v1/health/ping
               port: 3000
             initialDelaySeconds: 30
             periodSeconds: 5
-            timeoutSeconds: 3
+            timeoutSeconds: 5
             failureThreshold: 3
           resources:
             requests:
@@ -127,3 +155,22 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+---
+# With more than one copy, a node drained for maintenance takes them away one
+# at a time; with one, it does not stand in the way of the drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: flui-api
+  namespace: flui-system
+  labels:
+    app: flui-api
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: flui-api
