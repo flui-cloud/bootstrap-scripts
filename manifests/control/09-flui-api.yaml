@@ -115,6 +115,11 @@ spec:
           envFrom:
             - configMapRef:
                 name: flui-api-config
+            # Sensitive variables set on the flui-api application land here;
+            # listed before flui-secrets so the installer's values always win.
+            - secretRef:
+                name: flui-api-secret
+                optional: true
             - secretRef:
                 name: flui-secrets
           # Without this the whole boot allowance was the liveness probe's 90
