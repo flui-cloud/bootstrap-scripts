@@ -85,6 +85,11 @@ data:
       chunk_idle_period: 1h
       chunk_target_size: 1048576
       max_chunk_age: 2h
+      # Replaying the write-ahead log after a restart is uncapped by default
+      # (4GB): past the container limit, Loki was killed mid-replay and replayed
+      # again on every restart, forever. Past this ceiling it flushes instead.
+      wal:
+        replay_memory_ceiling: 256MB
 
     # Track cluster info via labels sent by Vector (server_id, cluster_id, etc.)
 ---
@@ -156,6 +161,9 @@ spec:
           image: grafana/loki:3.7.1
           args:
             - -config.file=/etc/loki/loki.yaml
+          env:
+            - name: GOMEMLIMIT
+              value: "450MiB"
           ports:
             - containerPort: 3100
           volumeMounts:
