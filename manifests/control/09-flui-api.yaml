@@ -77,7 +77,6 @@ metadata:
     flui.cloud/owner-kind: "platform"
     flui.cloud/owner-id: "flui-core"
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app: flui-api
@@ -90,6 +89,9 @@ spec:
         app.kubernetes.io/instance: flui-api
     spec:
       priorityClassName: flui-platform
+      # Long jobs (migrations, backups, builds) run in-process; a copy being
+      # removed gets time to finish them instead of leaving them stalled.
+      terminationGracePeriodSeconds: 600
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -155,11 +157,11 @@ spec:
             failureThreshold: 3
           resources:
             requests:
-              memory: "128Mi"
-              cpu: "100m"
+              memory: "256Mi"
+              cpu: "250m"
             limits:
-              memory: "512Mi"
-              cpu: "500m"
+              memory: "768Mi"
+              cpu: "1000m"
 ---
 # With more than one copy, a node drained for maintenance takes them away one
 # at a time; with one, it does not stand in the way of the drain.

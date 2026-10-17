@@ -83,6 +83,15 @@ spec:
       containers:
         - name: postgres
           image: postgres:15-alpine
+          args:
+            - "-c"
+            - "shared_buffers=256MB"
+            - "-c"
+            - "tcp_keepalives_idle=60"
+            - "-c"
+            - "tcp_keepalives_interval=10"
+            - "-c"
+            - "tcp_keepalives_count=3"
           ports:
             - containerPort: 5432
           env:
@@ -112,11 +121,11 @@ spec:
             periodSeconds: 5
           resources:
             requests:
-              memory: "64Mi"
-              cpu: "50m"
+              memory: "256Mi"
+              cpu: "250m"
             limits:
-              memory: "512Mi"
-              cpu: "500m"
+              memory: "1Gi"
+              cpu: "1500m"
       volumes:
         - name: postgres-data
           persistentVolumeClaim:
