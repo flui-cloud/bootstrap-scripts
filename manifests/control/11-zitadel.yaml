@@ -183,6 +183,9 @@ spec:
             # anyone create an account on the instance that owns the servers.
             - name: ZITADEL_DEFAULTINSTANCE_LOGINPOLICY_ALLOWREGISTER
               value: "false"
+            # The name an authenticator app files the one-time codes under.
+            - name: ZITADEL_SYSTEMDEFAULTS_MULTIFACTORS_OTP_ISSUER
+              value: "Flui"
           volumeMounts:
             - name: config
               mountPath: /config
