@@ -124,6 +124,13 @@ spec:
                 optional: true
             - secretRef:
                 name: flui-secrets
+          env:
+            # A copy asked to remove the node it runs on hands the work to
+            # another copy instead of draining itself away mid-operation.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           # Without this the whole boot allowance was the liveness probe's 90
           # seconds, so anything slower was fatal rather than slow: a single
           # powered-off cluster once kept the API crashlooping. 5 minutes is

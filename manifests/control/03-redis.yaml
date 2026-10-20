@@ -21,6 +21,29 @@ spec:
   selector:
     app: redis
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: flui-system
+  labels:
+    app: redis
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/managed-by: flui-cloud
+    app.kubernetes.io/instance: redis
+    flui.cloud/managed: "true"
+    flui.cloud/scope: "system"
+    flui.cloud/app-kind: "SYSTEM"
+    flui.cloud/owner-kind: "platform"
+    flui.cloud/owner-id: "flui-core"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: local-path
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -38,6 +61,10 @@ metadata:
     flui.cloud/owner-id: "flui-core"
 spec:
   replicas: 1
+  # One volume, one writer: a second copy started beside the first during an
+  # update would write the same append-only file.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: redis
@@ -50,12 +77,33 @@ spec:
         app.kubernetes.io/instance: redis
     spec:
       priorityClassName: flui-platform
+      # The queues of every long operation live here. On a worker, removing that
+      # worker lost the jobs of the operation removing it; on the master, which
+      # is never given back, they survive any change to the workers.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
       containers:
         - name: redis
           image: redis:7-alpine
-          command: ["redis-server", "--requirepass", "$(REDIS_PASSWORD)"]
+          command:
+            - redis-server
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            - --appendonly
+            - "yes"
+            - --appendfsync
+            - everysec
+            - --dir
+            - /data
           ports:
             - containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
           env:
             - name: REDIS_PASSWORD
               valueFrom:
@@ -67,5 +115,9 @@ spec:
               memory: "16Mi"
               cpu: "25m"
             limits:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "200m"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: redis-data
