@@ -92,7 +92,22 @@ spec:
       # Long jobs (migrations, backups, builds) run in-process; a copy being
       # removed gets time to finish them instead of leaving them stalled.
       terminationGracePeriodSeconds: 600
+      # The API removes workers, so its first copy lives on the master, which no
+      # scale-in ever gives back. Further copies spread to the workers: the
+      # anti-affinity below outweighs the pull of the master.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
       affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: In
+                    values: ["true"]
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
