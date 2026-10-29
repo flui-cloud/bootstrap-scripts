@@ -485,10 +485,17 @@ if [ -n "${PRIVATE_IP:-}" ]; then
 fi
 log "VNet private IP: ${PRIVATE_IP:-(not detected)} on iface ${PRIVATE_IFACE:-(none)}"
 
+# A server joins the cluster's control plane and etcd; an agent only runs work.
+FLUI_K3S_ROLE="${FLUI_K3S_ROLE:-agent}"
+case "$FLUI_K3S_ROLE" in agent|server) ;; *) error "Unknown FLUI_K3S_ROLE: $FLUI_K3S_ROLE" ;; esac
+
 K3S_NODE_IP_FLAGS=""
 if [ -n "${PRIVATE_IP:-}" ] && [ -n "${PRIVATE_IFACE:-}" ]; then
   K3S_NODE_IP_FLAGS="--node-ip=$PRIVATE_IP --flannel-iface=$PRIVATE_IFACE"
-  log "K3s agent will bind to private IP $PRIVATE_IP via $PRIVATE_IFACE"
+  if [ "$FLUI_K3S_ROLE" = server ]; then
+    K3S_NODE_IP_FLAGS="$K3S_NODE_IP_FLAGS --advertise-address=$PRIVATE_IP"
+  fi
+  log "K3s $FLUI_K3S_ROLE will bind to private IP $PRIVATE_IP via $PRIVATE_IFACE"
 fi
 
 # The zone and region the provider declares for this node; nothing when it declares none.
@@ -541,38 +548,69 @@ else
     log "DNS resolver pinning skipped (PIN_HOST_DNS=false)"
 fi
 
-# Install K3s as agent (worker)
-log "Installing K3s agent..."
-curl -sfL https://get.k3s.io | \
-  INSTALL_K3S_VERSION="$K3S_VERSION" \
-  sh -s - agent \
-  --server "$K3S_URL" \
-  --token "$K3S_TOKEN" \
-  --node-name="$INSTANCE_NAME" \
-  $K3S_NODE_IP_FLAGS \
-  $K3S_NODE_LABEL_FLAGS \
-  $K3S_RESOLV_CONF_FLAG || error "Failed to install K3s agent"
+if [ "$FLUI_K3S_ROLE" = server ]; then
+  # The same server flags as the first server (k3s-master-init.sh), which K3s
+  # requires to match, joining it instead of starting a new cluster. The
+  # overlay address is a SAN from the first boot so Flui can reach this
+  # server if the first one is lost.
+  log "Installing K3s server, joining $K3S_URL..."
+  curl -sfL https://get.k3s.io | \
+    INSTALL_K3S_VERSION="$K3S_VERSION" \
+    sh -s - server \
+    --server "$K3S_URL" \
+    --token "$K3S_TOKEN" \
+    --disable servicelb \
+    --node-name="$INSTANCE_NAME" \
+    --flannel-backend=vxlan \
+    --tls-san="$PRIMARY_IP" \
+    ${PRIVATE_IP:+--tls-san="$PRIVATE_IP"} \
+    ${FLUI_WG_ADDRESS:+--tls-san="$FLUI_WG_ADDRESS"} \
+    $K3S_NODE_IP_FLAGS \
+    $K3S_NODE_LABEL_FLAGS \
+    $K3S_RESOLV_CONF_FLAG \
+    --write-kubeconfig-mode=644 || error "Failed to install K3s server"
+  K3S_SERVICE=k3s
+else
+  log "Installing K3s agent..."
+  curl -sfL https://get.k3s.io | \
+    INSTALL_K3S_VERSION="$K3S_VERSION" \
+    sh -s - agent \
+    --server "$K3S_URL" \
+    --token "$K3S_TOKEN" \
+    --node-name="$INSTANCE_NAME" \
+    $K3S_NODE_IP_FLAGS \
+    $K3S_NODE_LABEL_FLAGS \
+    $K3S_RESOLV_CONF_FLAG || error "Failed to install K3s agent"
+  K3S_SERVICE=k3s-agent
+fi
 
-# Wait for K3s agent service to be active
-log "Waiting for K3s agent service to be active..."
+# A server first syncs etcd from the cluster, so it can take longer to start.
+log "Waiting for the $K3S_SERVICE service to be active..."
 MAX_WAIT=120
+[ "$FLUI_K3S_ROLE" = server ] && MAX_WAIT=300
 ELAPSED=0
-until systemctl is-active --quiet k3s-agent; do
+until systemctl is-active --quiet "$K3S_SERVICE"; do
   if [ $ELAPSED -ge $MAX_WAIT ]; then
-    error "K3s agent service did not become active within ${MAX_WAIT} seconds"
+    error "The $K3S_SERVICE service did not become active within ${MAX_WAIT} seconds"
   fi
-  log "K3s agent service not yet active, waiting..."
+  log "$K3S_SERVICE not yet active, waiting..."
   sleep 5
   ELAPSED=$((ELAPSED + 5))
 done
 
-log "✅ K3s worker node is ready!"
-log "Worker node IP: $PRIMARY_IP"
+log "✅ K3s $FLUI_K3S_ROLE node is ready!"
+log "Node IP: $PRIMARY_IP"
 log "Joined to cluster at: $K3S_URL"
 
 # ============================================================
 # STEP 4: Configure kubectl for cluster access
 # ============================================================
+if [ "$FLUI_K3S_ROLE" = server ]; then
+  # A server carries its own admin kubeconfig; `k3s kubectl` uses it.
+  touch /var/log/k3s-worker-ready
+  log "=== Server Node Initialization Complete ==="
+  exit 0
+fi
 log "Configuring kubectl to access the cluster..."
 
 # Create kubeconfig directory
