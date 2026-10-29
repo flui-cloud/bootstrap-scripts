@@ -330,7 +330,43 @@ prepare_flui_local_storage() {
     log "✅ flui-local: $FLUI_LOCAL_PATH is now XFS with project quotas ($device)"
 }
 
+# A loop device without direct I/O sends every write through the host's page
+# cache a second time, and sequential writes stall for over a second while it
+# drains. The fstab `loop` option cannot ask for direct I/O, so a unit turns it
+# on at every boot; on a mounted loop it takes effect at once.
+enable_flui_local_direct_io() {
+    local path="${FLUI_LOCAL_PATH:-/var/lib/flui/local}"
+    local helper=/usr/local/sbin/flui-local-direct-io
+    cat > "$helper" <<EOF
+#!/bin/sh
+dev=\$(findmnt -n -o SOURCE "$path" 2>/dev/null)
+case "\$dev" in /dev/loop*) exec losetup --direct-io=on "\$dev" ;; esac
+EOF
+    chmod 755 "$helper"
+    cat > /etc/systemd/system/flui-local-direct-io.service <<EOF
+[Unit]
+Description=Direct I/O for the flui-local loop device
+RequiresMountsFor=$path
+
+[Service]
+Type=oneshot
+ExecStart=$helper
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload >>"$LOG_FILE" 2>&1 || true
+    systemctl enable flui-local-direct-io.service >>"$LOG_FILE" 2>&1 || true
+    if "$helper" >>"$LOG_FILE" 2>&1; then
+        log "flui-local: direct I/O $(losetup -l -n -O NAME,DIO "$(findmnt -n -o SOURCE "$path" 2>/dev/null)" 2>/dev/null || echo 'not needed, no loop device')"
+    else
+        warn "flui-local: could not turn on direct I/O; writes keep going through the page cache"
+    fi
+}
+
 prepare_flui_local_storage
+enable_flui_local_direct_io
 
 # ============================================================
 # STEP 2.5: Configure Flui shared storage (NFS client + fscache)
@@ -455,6 +491,21 @@ if [ -n "${PRIVATE_IP:-}" ] && [ -n "${PRIVATE_IFACE:-}" ]; then
   log "K3s agent will bind to private IP $PRIVATE_IP via $PRIVATE_IFACE"
 fi
 
+# The zone and region the provider declares for this node; nothing when it declares none.
+K3S_NODE_LABEL_FLAGS=""
+for pair in "topology.kubernetes.io/zone=${FLUI_NODE_ZONE:-}" "topology.kubernetes.io/region=${FLUI_NODE_REGION:-}"; do
+  value="${pair#*=}"
+  [ -n "$value" ] || continue
+  if printf '%s' "$value" | grep -Eq '^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?$'; then
+    K3S_NODE_LABEL_FLAGS="$K3S_NODE_LABEL_FLAGS --node-label=$pair"
+  else
+    warn "Ignoring a topology label that is not a valid label value: $value"
+  fi
+done
+if [ -n "$K3S_NODE_LABEL_FLAGS" ]; then
+  log "K3s node labels:$K3S_NODE_LABEL_FLAGS"
+fi
+
 # Pin DNS resolvers (host + kubelet) — same rationale as the master's
 # STEP 2.7: hosting-provider recursors cache stale/negative answers for the
 # full TTL, breaking ACME self-checks and fresh-record lookups on pods
@@ -499,6 +550,7 @@ curl -sfL https://get.k3s.io | \
   --token "$K3S_TOKEN" \
   --node-name="$INSTANCE_NAME" \
   $K3S_NODE_IP_FLAGS \
+  $K3S_NODE_LABEL_FLAGS \
   $K3S_RESOLV_CONF_FLAG || error "Failed to install K3s agent"
 
 # Wait for K3s agent service to be active
