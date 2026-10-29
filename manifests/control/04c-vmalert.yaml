@@ -571,6 +571,80 @@ data:
             annotations:
               summary: "Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} has not been issued for 6 hours"
               description: "The address it protects is served without a valid certificate until it is."
+
+      # A highly available PostgreSQL keeps a copy in step with its primary.
+      # Read from the copies' own reports; a database that is a single
+      # instance reports none of these and never fires them.
+      - name: flui_database
+        rules:
+          - alert: FluiDatabaseCopyBehind
+            expr: |
+              max by (cluster_id, namespace, cnpg_io_cluster) (
+                cnpg_pg_replication_lag
+              ) > 30
+            for: 5m
+            labels:
+              severity: warning
+              flui_kind: database
+            annotations:
+              summary: "The copy of database {{ $labels.cnpg_io_cluster }} is {{ $value | humanizeDuration }} behind"
+              description: "In {{ $labels.namespace }}. If the primary is lost now, the copy that takes over is missing that much."
+              action: "flui db ha <database>"
+          - alert: FluiDatabaseWithoutCopy
+            expr: |
+              max by (cluster_id, namespace, cnpg_io_cluster) (
+                cnpg_pg_replication_streaming_replicas
+                  unless on (cluster_id, namespace, pod) cnpg_pg_replication_in_recovery == 1
+              ) == 0
+            for: 2m
+            labels:
+              severity: critical
+              flui_kind: database
+            annotations:
+              summary: "Database {{ $labels.cnpg_io_cluster }} has no copy in step"
+              description: "In {{ $labels.namespace }}. With no confirmed write ever lost, writes wait until a copy is back; otherwise they go on unprotected."
+              action: "flui db ha <database>"
+      - name: flui_replicated_volumes
+        rules:
+          - alert: FluiReplicatedVolumeCopyUnreachable
+            expr: |
+              max by (cluster_id, pod, name, conn_name) (
+                drbd_connection_state{drbd_connection_state="Connected"} == 0
+                  and on (cluster_id, pod, name) drbd_resource_role{drbd_resource_role="Primary"} == 1
+              )
+            for: 2m
+            labels:
+              severity: critical
+              flui_kind: storage
+            annotations:
+              summary: "Replicated volume {{ $labels.name }} cannot reach {{ $labels.conn_name }}"
+              description: "The node using the volume writes without that copy or vote. Until it is back, the volume's data is on one node only."
+              action: "flui cluster replicated-volumes <cluster>"
+          - alert: FluiReplicatedVolumeBehind
+            expr: |
+              max by (cluster_id, name, conn_name) (drbd_peerdevice_outofsync_bytes) > 0
+            for: 15m
+            labels:
+              severity: warning
+              flui_kind: storage
+            annotations:
+              summary: "The copy of replicated volume {{ $labels.name }} on {{ $labels.conn_name }} is {{ $value | humanize1024 }}B behind"
+              description: "A new volume copies itself whole once. A copy still behind after that does not protect the data yet."
+              action: "flui cluster replicated-volumes <cluster>"
+          - alert: FluiReplicatedVolumeWritesHeld
+            expr: |
+              max by (cluster_id, pod, name) (
+                drbd_device_quorum == 0
+                  and on (cluster_id, pod, name) drbd_resource_role{drbd_resource_role="Primary"} == 1
+              )
+            for: 1m
+            labels:
+              severity: critical
+              flui_kind: storage
+            annotations:
+              summary: "Replicated volume {{ $labels.name }} is holding its writes"
+              description: "The node using it sees neither the other copy nor the tie-breaking vote, so it holds writes rather than risk two copies that differ."
+              action: "flui cluster replicated-volumes <cluster>"
 ---
 apiVersion: apps/v1
 kind: Deployment
