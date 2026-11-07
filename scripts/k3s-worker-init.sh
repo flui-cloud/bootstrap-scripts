@@ -369,6 +369,36 @@ prepare_flui_local_storage
 enable_flui_local_direct_io
 
 # ============================================================
+# STEP 2.4: Wait for the join details (servers bought with the cluster)
+# ============================================================
+# A server bought together with its cluster boots before the first server
+# exists, and etcd takes one new member at a time. It prepares everything
+# that does not need the cluster, then waits for Flui to write where to join.
+
+if [ "${FLUI_K3S_JOIN:-now}" = "later" ]; then
+    JOIN_FILE="/var/lib/flui/k3s-join.env"
+    JOIN_WAIT_SECONDS="${FLUI_K3S_JOIN_WAIT_SECONDS:-3600}"
+    mkdir -p /var/lib/flui
+    touch /var/lib/flui/k3s-join.waiting
+    log "Prepared; waiting up to ${JOIN_WAIT_SECONDS}s for Flui to say where to join..."
+    ELAPSED=0
+    until [ -s "$JOIN_FILE" ]; do
+        if [ "$ELAPSED" -ge "$JOIN_WAIT_SECONDS" ]; then
+            error "Flui did not hand over the join details within ${JOIN_WAIT_SECONDS} seconds"
+        fi
+        sleep 5
+        ELAPSED=$((ELAPSED + 5))
+    done
+    # shellcheck disable=SC1090
+    . "$JOIN_FILE"
+    rm -f "$JOIN_FILE" /var/lib/flui/k3s-join.waiting
+    for required in K3S_URL K3S_TOKEN MASTER_IP; do
+        [ -n "${!required:-}" ] || error "The join details lack $required"
+    done
+    log "Joining $K3S_URL after ${ELAPSED}s of waiting"
+fi
+
+# ============================================================
 # STEP 2.5: Configure Flui shared storage (NFS client + fscache)
 # ============================================================
 # When FLUI_SHARED_STORAGE_ENABLED=true, install nfs-common + cachefilesd,
