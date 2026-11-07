@@ -701,6 +701,14 @@ log "✅ K3s service is active (took ${ELAPSED}s)"
 log "Service status:"
 (systemctl status k3s --no-pager | head -20 | tee -a "$LOG_FILE") || true
 
+# A snap kubectl runs inside root's user manager, which systemd stops a few
+# seconds after the last SSH session ends (Flui's, once it has the kubeconfig),
+# killing whatever kubectl this script is running at that moment. The one K3s
+# ships runs as a plain process, at the cluster's own version.
+ln -sf /usr/local/bin/k3s /usr/local/bin/kubectl
+hash -r
+log "kubectl: $(command -v kubectl) ($(kubectl version --client 2>/dev/null | head -1))"
+
 # ============================================================
 # STEP 5: Wait for kubectl to be functional
 # ============================================================
